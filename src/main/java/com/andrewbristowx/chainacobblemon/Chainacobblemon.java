@@ -10,6 +10,7 @@ import com.andrewbristowx.chainacobblemon.hologram.HologramManager;
 import com.andrewbristowx.chainacobblemon.integration.PlaceholderIntegration;
 import com.andrewbristowx.chainacobblemon.integration.StreamotesServerIntegration;
 import com.andrewbristowx.chainacobblemon.registry.ChainaRegistries;
+import com.andrewbristowx.chainacobblemon.rewards.KitNetworking;
 import com.andrewbristowx.chainacobblemon.systems.ChainaSystems;
 import com.andrewbristowx.chainacobblemon.systems.SystemsCommands;
 import net.fabricmc.api.ModInitializer;
@@ -18,7 +19,7 @@ import org.slf4j.LoggerFactory;
 
 public final class Chainacobblemon implements ModInitializer {
     public static final String MOD_ID = "chainacobblemon";
-    public static final String VERSION = "0.2.0-alpha.2+1.21.1";
+    public static final String VERSION = "0.2.0-alpha.3+1.21.1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
@@ -32,6 +33,7 @@ public final class Chainacobblemon implements ModInitializer {
         NpcVisualEntityService.initialize();
         GameplaySystems.initialize();
         GameplayAdminService.ensureDefaults();
+        KitNetworking.initializeServer();
         PlaceholderIntegration.register();
         HologramManager.initialize();
         ChainaCommands.register();
