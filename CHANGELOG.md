@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.3
+- Los hologramas/textos flotantes ahora marcan los tokens explicitos `:Emote:` con el mismo estilo interno que Streamotes usa para sus glifos.
+- Streamotes puede renderizar esos emotes dentro de `TextDisplayEntity`, no solo dentro del chat.
+- Se conservan colores legacy, placeholders y texto normal alrededor de los emotes.
+- Si Streamotes no esta instalado, los textos flotantes permanecen como texto normal y no se altera su contenido.
+- La alpha.2 se conserva intacta; esta correccion vive en `release/0.1.0-alpha.3`.
+
 ## 0.1.0-alpha.2
 - Conserva el selector de emotes, favoritos, recientes, busqueda y cache persistente de alpha.1.
 - Conserva el canal oficial Twitch/Streamotes `chainavt`.
