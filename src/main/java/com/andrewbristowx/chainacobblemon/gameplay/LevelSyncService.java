@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Crash-safe Battle Cap/Level Sync. Original party levels are persisted before any temporary change. */
+/** Battle Cap/Level Sync seguro ante cierres inesperados. Guarda los niveles originales antes de modificar nada. */
 public final class LevelSyncService {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path RECOVERY_FILE = FabricLoader.getInstance().getConfigDir().resolve("chainacobblemon").resolve("levelsync_recovery.json");
@@ -37,7 +37,7 @@ public final class LevelSyncService {
                 Map<UUID, Recovery> loaded = GSON.fromJson(Files.readString(RECOVERY_FILE, StandardCharsets.UTF_8), type);
                 if (loaded != null) recovery = new HashMap<>(loaded);
             }
-        } catch (Exception e) { Chainacobblemon.LOGGER.error("Could not load Level Sync recovery file", e); }
+        } catch (Exception e) { Chainacobblemon.LOGGER.error("No se pudo cargar el archivo de recuperación de Level Sync", e); }
     }
 
     public static boolean start(ServerPlayerEntity player, int cap, String trainerId, String npcId) {
@@ -57,13 +57,13 @@ public final class LevelSyncService {
             for (CobblemonBridge.PokemonRef ref : party) {
                 if (ref.level() > cap) CobblemonBridge.setLevel(ref.handle(), cap);
             }
-            player.sendMessage(net.minecraft.text.Text.literal("§dLevel Sync §7» §fTu equipo fue sincronizado temporalmente al nivel §6" + cap + "§f."), false);
+            player.sendMessage(net.minecraft.text.Text.literal("§dSincronización de nivel §7» §fTu equipo fue sincronizado temporalmente al nivel §6" + cap + "§f."), false);
         }
         ACTIVE.put(player.getUuid(), session);
         return true;
     }
 
-    public static void cancelStart(ServerPlayerEntity player) { restore(player, "battle_start_failed", false); }
+    public static void cancelStart(ServerPlayerEntity player) { restore(player, "inicio_de_batalla_fallido", false); }
     public static void markVictory(UUID playerUuid) { Session session = ACTIVE.get(playerUuid); if (session != null) session.victory = true; }
 
     public static void tick(MinecraftServer server, GameplayConfig.Performance performance) {
@@ -78,10 +78,11 @@ public final class LevelSyncService {
             if (session.sawBattle && battle == null) {
                 boolean won = session.victory;
                 String trainer = session.trainerId, npc = session.npcId;
-                restore(player, "battle_ended", true);
+                restore(player, "batalla_finalizada", true);
+                if (won) GameplaySystems.recordAction(player, "trainer_win", trainer, 1);
                 GameplaySystems.onTrainerBattleFinished(player, trainer, npc, won);
             } else if (!session.sawBattle && tick - session.startedTick > Math.max(40, performance.levelSyncStartTimeoutTicks)) {
-                restore(player, "battle_timeout", false);
+                restore(player, "tiempo_de_inicio_agotado", false);
             }
         }
     }
@@ -92,11 +93,11 @@ public final class LevelSyncService {
         restoreSaved(player, r.original);
         recovery.remove(player.getUuid());
         saveRecovery();
-        player.sendMessage(net.minecraft.text.Text.literal("§aLevel Sync: se restauraron niveles pendientes de una sesión anterior."), false);
+        player.sendMessage(net.minecraft.text.Text.literal("§aSincronización de nivel: se restauraron niveles pendientes de una sesión anterior."), false);
     }
 
-    public static void restoreOnDisconnect(ServerPlayerEntity player) { restore(player, "disconnect", false); }
-    public static void restoreAll(MinecraftServer server) { for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) restore(p, "server_stop", false); }
+    public static void restoreOnDisconnect(ServerPlayerEntity player) { restore(player, "desconexión", false); }
+    public static void restoreAll(MinecraftServer server) { for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) restore(p, "apagado_del_servidor", false); }
 
     public static boolean restore(ServerPlayerEntity player, String reason, boolean silent) {
         Session session = ACTIVE.remove(player.getUuid());
@@ -104,8 +105,8 @@ public final class LevelSyncService {
         List<SavedPokemon> original = session != null ? session.original : saved != null ? saved.original : List.of();
         if (!original.isEmpty()) restoreSaved(player, original);
         saveRecovery();
-        if (!silent && !original.isEmpty()) player.sendMessage(net.minecraft.text.Text.literal("§aLevel Sync §7» §fNiveles originales restaurados."), false);
-        if (session != null) Chainacobblemon.LOGGER.info("Restored Level Sync for {} ({})", player.getGameProfile().getName(), reason);
+        if (!silent && !original.isEmpty()) player.sendMessage(net.minecraft.text.Text.literal("§aSincronización de nivel §7» §fNiveles originales restaurados."), false);
+        if (session != null) Chainacobblemon.LOGGER.info("Sincronización de nivel restaurada para {} ({})", player.getGameProfile().getName(), reason);
         return session != null || saved != null;
     }
 
@@ -125,7 +126,7 @@ public final class LevelSyncService {
             Files.writeString(tmp, GSON.toJson(recovery), StandardCharsets.UTF_8);
             try { Files.move(tmp, RECOVERY_FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE); }
             catch (java.nio.file.AtomicMoveNotSupportedException ignored) { Files.move(tmp, RECOVERY_FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
-        } catch (Exception e) { Chainacobblemon.LOGGER.error("Could not save Level Sync recovery data", e); }
+        } catch (Exception e) { Chainacobblemon.LOGGER.error("No se pudieron guardar los datos de recuperación de Level Sync", e); }
     }
 
     private static final class Session {
