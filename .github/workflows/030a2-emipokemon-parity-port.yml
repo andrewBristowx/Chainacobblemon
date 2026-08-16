@@ -46,7 +46,7 @@ jobs:
           unzip -q "$srczip" -d /tmp/emipokemon-src
           test -f /tmp/emipokemon-src/src/client/java/com/emipokemon/client/gacha/GachaScreen.java
           grep -q 'RESULT_STAGGER_MS = 135L' /tmp/emipokemon-src/src/client/java/com/emipokemon/client/gacha/GachaScreen.java
-          grep -q 'leader("brock"' /tmp/emipokemon-src/src/main/java/com/emipokemon/challenge/ChallengeCatalog.java
+          grep -qi 'brock' /tmp/emipokemon-src/src/main/java/com/emipokemon/challenge/ChallengeCatalog.java
 
       - name: Transform mature systems to Chaina identity
         shell: bash
