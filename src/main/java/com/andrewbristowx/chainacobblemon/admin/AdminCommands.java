@@ -15,12 +15,36 @@ import static net.minecraft.server.command.CommandManager.literal;
 public final class AdminCommands {
     private static boolean initialized;
     private AdminCommands() {}
-    public static synchronized void register(){if(initialized)return;initialized=true;CommandRegistrationCallback.EVENT.register((dispatcher,access,environment)->
-            dispatcher.register(literal("chaina").then(literal("admin")
-                    .requires(s-> PermissionBridge.check(s, GameplaySystems.ADMIN,2))
-                    .then(literal("reiniciar").then(argument("jugador", EntityArgumentType.player()).then(argument("seccion", StringArgumentType.word())
-                            .suggests((c,b)->{for(String s:new String[]{"todo","economia","trabajos","misiones","gasha","diario","pase","mazmorras","kits"})b.suggest(s);return b.buildFuture();})
-                            .executes(c->{ServerPlayerEntity p=EntityArgumentType.getPlayer(c,"jugador");String r=PlayerResetService.reset(p,StringArgumentType.getString(c,"seccion"));c.getSource().sendFeedback(()->Text.literal(r),true);return 1;}))))
-                    .then(literal("kits").then(literal("recargar").executes(c->{ChainaKits.reload();c.getSource().sendFeedback(()->Text.literal("Kits de Chaina recargados."),false);return 1;})))
-            ))));}
+
+    public static synchronized void register() {
+        if (initialized) return;
+        initialized = true;
+        CommandRegistrationCallback.EVENT.register((dispatcher, access, environment) -> {
+            var root = literal("chaina").then(
+                    literal("admin")
+                            .requires(source -> PermissionBridge.check(source, GameplaySystems.ADMIN, 2))
+                            .then(literal("reiniciar")
+                                    .then(argument("jugador", EntityArgumentType.player())
+                                            .then(argument("seccion", StringArgumentType.word())
+                                                    .suggests((context, builder) -> {
+                                                        for (String value : new String[]{"todo", "economia", "trabajos", "misiones", "gasha", "diario", "pase", "mazmorras", "kits"}) builder.suggest(value);
+                                                        return builder.buildFuture();
+                                                    })
+                                                    .executes(context -> {
+                                                        ServerPlayerEntity player = EntityArgumentType.getPlayer(context, "jugador");
+                                                        String result = PlayerResetService.reset(player, StringArgumentType.getString(context, "seccion"));
+                                                        context.getSource().sendFeedback(() -> Text.literal(result), true);
+                                                        return 1;
+                                                    }))))
+                            .then(literal("kits")
+                                    .then(literal("recargar")
+                                            .executes(context -> {
+                                                ChainaKits.reload();
+                                                context.getSource().sendFeedback(() -> Text.literal("Kits de Chaina recargados."), false);
+                                                return 1;
+                                            })))
+            );
+            dispatcher.register(root);
+        });
+    }
 }
