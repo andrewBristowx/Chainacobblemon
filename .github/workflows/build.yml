@@ -1,5 +1,10 @@
 name: Build Chainacobblemon
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - 'release/**'
+      - main
+  pull_request:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -10,8 +15,12 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - run: chmod +x gradlew && ./gradlew build
+        with:
+          gradle-version: '9.6.1'
+      - run: gradle clean build
       - uses: actions/upload-artifact@v4
         with:
           name: Chainacobblemon-${{ github.sha }}
-          path: build/libs/*.jar
+          path: |
+            build/libs/Chainacobblemon-*.jar
+            !build/libs/*-sources.jar
