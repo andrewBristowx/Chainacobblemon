@@ -2,6 +2,7 @@ package com.andrewbristowx.chainacobblemon;
 
 import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
+import com.andrewbristowx.chainacobblemon.gameplay.GameplayNetworking;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
 import com.andrewbristowx.chainacobblemon.hologram.HologramManager;
 import com.andrewbristowx.chainacobblemon.integration.PlaceholderIntegration;
@@ -15,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 public final class Chainacobblemon implements ModInitializer {
     public static final String MOD_ID = "chainacobblemon";
-    public static final String VERSION = "0.2.0-alpha.1+1.21.1";
+    public static final String VERSION = "0.2.0-alpha.2+1.21.1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
@@ -25,6 +26,8 @@ public final class Chainacobblemon implements ModInitializer {
         ChainaEquipment.initialize();
         StreamotesServerIntegration.ensureOfficialChannel();
         ChainaSystems.initialize();
+        // Register the visual player/admin menu interception before the legacy gameplay interaction callback.
+        GameplayNetworking.initializeServer();
         GameplaySystems.initialize();
         PlaceholderIntegration.register();
         HologramManager.initialize();
