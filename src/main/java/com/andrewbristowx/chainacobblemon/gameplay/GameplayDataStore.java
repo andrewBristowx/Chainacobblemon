@@ -52,7 +52,7 @@ public final class GameplayDataStore {
                 if (data != null) { data.ensure(); return data; }
             }
         } catch (Exception e) {
-            Chainacobblemon.LOGGER.error("Could not load gameplay data for {}", uuid, e);
+            Chainacobblemon.LOGGER.error("No se pudieron cargar los datos de gameplay de {}", uuid, e);
         }
         PlayerData data = new PlayerData();
         data.balance = startingBalance;
@@ -74,7 +74,7 @@ public final class GameplayDataStore {
                 Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (Exception e) {
-            Chainacobblemon.LOGGER.error("Could not save gameplay data for {}", uuid, e);
+            Chainacobblemon.LOGGER.error("No se pudieron guardar los datos de gameplay de {}", uuid, e);
         }
     }
 
@@ -82,6 +82,7 @@ public final class GameplayDataStore {
         public long balance;
         public Set<String> activeJobs = new HashSet<>();
         public Map<String, Long> jobProgress = new HashMap<>();
+        public Map<String, Long> jobXp = new HashMap<>();
         public Map<String, Integer> questProgress = new HashMap<>();
         public Set<String> claimedQuests = new HashSet<>();
         public Map<String, Long> dungeonCooldownUntil = new HashMap<>();
@@ -94,6 +95,7 @@ public final class GameplayDataStore {
         void ensure() {
             if (activeJobs == null) activeJobs = new HashSet<>();
             if (jobProgress == null) jobProgress = new HashMap<>();
+            if (jobXp == null) jobXp = new HashMap<>();
             if (questProgress == null) questProgress = new HashMap<>();
             if (claimedQuests == null) claimedQuests = new HashSet<>();
             if (dungeonCooldownUntil == null) dungeonCooldownUntil = new HashMap<>();
