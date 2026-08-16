@@ -2,74 +2,41 @@
 
 Base independiente para el servidor Cobblemon de Chaina (Minecraft 1.21.1, Fabric, Java 21).
 
-## 0.1.0-alpha.3
+## 0.1.0-alpha.5 — Equipment template
 
-Esta alpha corrige los emotes dentro de los textos flotantes sin modificar la alpha.2.
+Esta versión agrega el primer set funcional de Chaina como **template provisional**. No es el diseño visual final.
 
-### Emotes
-- selector dentro del chat;
-- Twitch / 7TV / BTTV / FFZ mediante Streamotes 1.2.12+1.21;
-- canal oficial `chainavt`;
-- favoritos, recientes, busqueda y cache local persistente;
-- insercion `:Emote:` manteniendo el foco del chat;
-- tokens de emote preservados dentro de prefixes/suffixes de rango;
-- tokens explicitos `:Emote:` renderizables tambien dentro de hologramas `TextDisplayEntity`.
+Incluye:
+- espada ligeramente mejor y más rápida que netherita;
+- pico 3×3 al agacharse;
+- pala 3×3 al agacharse;
+- hacha con tala de árboles limitada y cooldown;
+- azada con premio bonus configurable al arar;
+- casco, pechera, pantalones y botas con bonus de set;
+- modelos basados directamente en las formas vanilla de netherita, con una capa ligera coral/dorada/sakura;
+- configuración en `config/chainacobblemon/equipment.json`.
 
-La integracion de hologramas reutiliza el mismo marcador de estilo que Streamotes reconoce al dibujar sus glifos. Asi no se crean entidades extra por emote ni se descargan imagenes por separado para cada holograma.
+Comandos de prueba:
+- `/chaina equipment give`
+- `/chaina equipment status`
+- `/chaina equipment reload`
 
-### Placeholder API
-Requiere `placeholder-api 2.4.2+1.21`.
+Permisos preparados:
+- `chainacobblemon.tools.pickaxe.3x3`
+- `chainacobblemon.tools.shovel.3x3`
+- `chainacobblemon.tools.axe.treefelling`
+- `chainacobblemon.tools.hoe.bonus`
+- `chainacobblemon.tools.setbonus`
+- `chainacobblemon.tools.admin`
 
-Placeholders propios:
-- `%chainacobblemon:player_name%`
-- `%chainacobblemon:display_name%`
-- `%chainacobblemon:rank%`
-- `%chainacobblemon:rank_display%`
-- `%chainacobblemon:prefix%`
-- `%chainacobblemon:suffix%`
-- `%chainacobblemon:meta/clave%`
-- `%chainacobblemon:online%`
-- `%chainacobblemon:max_players%`
-- `%chainacobblemon:twitch_channel%`
-- `%chainacobblemon:version%`
+Por defecto `permissionsRequired=false`, así que las habilidades funcionan para jugadores normales durante las pruebas. Cuando se active, LuckPerms controla las habilidades.
 
-LuckPerms es recomendado, no obligatorio. Si esta instalado, los placeholders de rango/prefix/suffix/meta leen la informacion cacheada del jugador. Los comandos administrativos consultan el permiso de LuckPerms y, si no esta disponible, usan OP nivel 2 como fallback.
+## Sistemas ya presentes
+- emotes Twitch/7TV/BTTV/FFZ con canal `chainavt`, selector, favoritos y caché;
+- placeholders y puente LuckPerms;
+- textos flotantes/hologramas con emotes de Streamotes;
+- gasha estándar y Chaina;
+- login diario;
+- pase gratis/premium.
 
-Prueba rapida:
-`/chaina placeholder test &d%chainacobblemon:prefix% &f%chainacobblemon:player_name%`
-
-### Hologramas / textos flotantes
-Cada holograma multilinea utiliza un solo `TextDisplayEntity` vanilla. No se usan ArmorStands por linea.
-
-Comandos:
-- `/chaina hologram create <id>`
-- `/chaina hologram line <id> <linea> <texto>`
-- `/chaina hologram addline <id> <texto>`
-- `/chaina hologram removeline <id> <linea>`
-- `/chaina hologram move <id>`
-- `/chaina hologram delete <id>`
-- `/chaina hologram refresh <id>`
-- `/chaina hologram list`
-
-Ejemplos:
-`/chaina hologram line bienvenida 1 &dBienvenido a Chaina Cobblemon`
-`/chaina hologram addline bienvenida &fJugadores: &a%chainacobblemon:online%`
-`/chaina hologram line bienvenida 1 &d:4Evil: &fBienvenido`
-
-Para que `:4Evil:` se vea como imagen, Streamotes debe estar instalado y haber cargado ese emote en el cliente. Si Streamotes no esta presente, el holograma conserva el texto sin aplicar el marcador especial.
-
-Los hologramas se guardan en `config/chainacobblemon/holograms.json`.
-
-**Importante:** un TextDisplay compartido tiene el mismo texto para todos los jugadores. Por eso los hologramas usan contexto global de servidor. Placeholders personales como `player_name`, `rank` o `prefix` estan pensados para chat, TAB, menus o cualquier sistema que invoque Placeholder API con contexto de jugador. Una futura capa virtual por jugador sera necesaria si se quieren hologramas distintos para cada espectador.
-
-### Permisos iniciales
-- `chainacobblemon.hologram.admin`
-- `chainacobblemon.placeholder.use`
-
-La arquitectura deja reservados para siguientes versiones:
-- `chainacobblemon.hologram.view`
-- `chainacobblemon.emotes.use`
-- `chainacobblemon.emotes.picker`
-- `chainacobblemon.ranks.admin`
-
-Esta version no incorpora contenido tematico de Emi ni gacha/economia/Pokemon/herramientas/NPCs de Emi.
+La rama de esta candidata es `release/0.1.0-alpha.5`. Alpha.4 se conserva intacta.

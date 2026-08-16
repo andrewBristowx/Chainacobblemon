@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha.5
+- Añade set template de Chaina: espada, pico, hacha, pala, azada, casco, pechera, pantalones y botas.
+- Las herramientas conservan forma/transformación vanilla mediante modelos de netherita y una capa de acentos Chaina provisional.
+- La espada es ligeramente más fuerte y rápida que netherita; el material template aumenta moderadamente durabilidad y velocidad.
+- Pico y pala incluyen modo 3x3 seguro, por defecto solo al agacharse, usando el plano real de la cara minada.
+- El hacha incluye tala de árbol limitada, con detección de hojas, radio, límite de bloques y cooldown.
+- La azada puede entregar un recurso bonus configurable al arar.
+- El set completo otorga bonus configurables de velocidad, prisa y resistencia; se evalúa una vez por segundo.
+- Añade configuración `config/chainacobblemon/equipment.json`, lista de dimensiones/bloques protegidos y permisos opcionales LuckPerms.
+- Añade `/chaina equipment give`, `/chaina equipment reload` y `/chaina equipment status`.
+- La armadura usa netherita como base visual y una segunda capa ligera coral/dorada; sigue siendo un template, no el diseño final.
+- Mantiene intacta la alpha.4 y no incorpora referencias ni assets de Emi.
+
 ## 0.1.0-alpha.4
 - Añade el primer gasha funcional de Chaina con banner estándar y banner especial Chaina.
 - Añade tickets físicos separados, tiradas x1/x10, tiradas virtuales, soft pity, hard pity, shiny y entrega server-side mediante Cobblemon.
@@ -33,12 +46,9 @@
 - Agrega comandos `/chaina hologram ...` y `/chaina placeholder test ...`.
 - Agrega nodos de permisos `chainacobblemon.hologram.admin` y `chainacobblemon.placeholder.use` con LuckPerms y fallback OP.
 - Los hologramas compartidos usan contexto de servidor; placeholders dependientes de jugador quedan vacios en hologramas para evitar mostrar datos de un jugador a todos.
-- Sin contenido, assets, IDs, moneda, Pokemon, herramientas, gacha ni lore de Emi.
 
 ## 0.1.0-alpha.1
 - Nuevo mod ID `chainacobblemon`.
 - Package propio `com.andrewbristowx.chainacobblemon`.
 - Canal Twitch/Streamotes cambiado a `chainavt`.
 - Selector de emotes, favoritos, recientes, busqueda y cache persistente conservados.
-- Eliminadas referencias, IDs, nombres y assets tematicos de la tematizacion anterior de esta primera alpha.
-- UI de emotes neutralizada temporalmente; no se ha aplicado aun identidad visual de Chaina.
