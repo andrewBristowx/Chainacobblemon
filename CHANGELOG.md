@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0-alpha.1
+- Añade la base de gameplay de Chaina **sin ningún sistema de casino**.
+- Añade economía propia configurable (`ChaiBells` / `CB` por defecto), saldo persistente, pagos entre jugadores y administración.
+- Añade Jobs configurables para minería, madera, mobs, capturas, victorias Pokémon, pesca Pokémon, tiempo activo y exploración; límite base 2, permiso para 4 o ilimitado.
+- Añade tienda configurable conectada a la economía y a los tickets de gasha.
+- Añade misiones configurables con prerrequisitos, progreso, recompensas de objetos y moneda.
+- Añade NPCs persistentes de servicio: enfermera, tienda, misiones, comando y entrenador.
+- La enfermera cura el equipo Cobblemon mediante un bridge opcional que no hace hard-depend del mod.
+- Añade bridge opcional para Radical Cobblemon Trainers API. Los equipos se cargan como JSON nativo de RCT desde `config/chainacobblemon/trainers/`.
+- Añade Battle Cap / Level Sync persistente y crash-safe: guarda UUID/nivel original antes de sincronizar, restaura al terminar, desconectarse, apagar el servidor o reconectar tras un cierre inesperado.
+- Añade `/hub` y `/spawn` con puntos configurables.
+- Añade formateo de TAB con Placeholder API + LuckPerms + Streamotes sin interceptar el signed chat; Styled Chat/Styled Player List pueden consumir los mismos placeholders.
+- Añade dungeons por región para vincular estructuras ya generadas por When Dungeons Arise/YUNG/Dungeons & Taverns/BOMD/Lootr con boss, entrenador, cooldown y recompensas, sin copiar `EmiDungeonLoot` ni reemplazar worldgen.
+- Añade placeholders de economía y Jobs.
+- Añade `config/chainacobblemon/gameplay.json` y persistencia en `config/chainacobblemon/gameplay_players/`.
+- Optimización: dirty-save periódico, reconciliación de NPCs espaciada, TAB solo se actualiza al cambiar, exploración/dungeons por intervalos y sin scans globales permanentes.
+- Mantiene todos los sistemas de alpha.5: emotes, hologramas, gasha, login diario, pase y equipo Chaina.
+
 ## 0.1.0-alpha.5
 - Añade set template de Chaina: espada, pico, hacha, pala, azada, casco, pechera, pantalones y botas.
 - Las herramientas conservan forma/transformación vanilla mediante modelos de netherita y una capa de acentos Chaina provisional.
@@ -17,38 +35,15 @@
 - Añade el primer gasha funcional de Chaina con banner estándar y banner especial Chaina.
 - Añade tickets físicos separados, tiradas x1/x10, tiradas virtuales, soft pity, hard pity, shiny y entrega server-side mediante Cobblemon.
 - El gasha devuelve el ticket/tirada virtual si falla la entrega del Pokémon.
-- Añade dos máquinas físicas provisionales: estándar y Chaina. La versión Chaina usa una presentación temporal blanco/negro/rosa; el modelo 3D final se hará después.
-- Añade login diario server-authoritative con zona horaria configurable, racha, reclamos, premios ponderados y recuperación de ítems pendientes tras reconectar.
-- Añade pase infinito con pista gratis y premium, XP por tiempo activo, páginas, reclamos retroactivos y premios en tiradas Chaina.
-- El premium del pase usa `chainacobblemon.pass.premium` mediante LuckPerms, con OP como fallback de desarrollo.
-- Añade GUIs originales de Chaina dibujadas en código con carbón/coral/dorado/sakura, sin reutilizar fondos ni assets visuales de Emi.
-- Añade `config/chainacobblemon/systems.json` y persistencia independiente por UUID en `config/chainacobblemon/players/`.
-- Añade placeholders para pity, tiradas, login diario y pase.
-- Añade comandos `/chaina gacha`, `/chaina daily`, `/chaina pass` y utilidades admin para pruebas.
-- Mantiene intacta la alpha.3 y no introduce Michicoins, IDs `emi_*`, Pokémon custom Emi ni assets Emi.
+- Añade dos máquinas físicas provisionales: estándar y Chaina.
+- Añade login diario server-authoritative con racha y premios ponderados.
+- Añade pase infinito con pista gratis y premium.
 
 ## 0.1.0-alpha.3
-- Los hologramas/textos flotantes ahora marcan los tokens explicitos `:Emote:` con el mismo estilo interno que Streamotes usa para sus glifos.
-- Streamotes puede renderizar esos emotes dentro de `TextDisplayEntity`, no solo dentro del chat.
-- Se conservan colores legacy, placeholders y texto normal alrededor de los emotes.
-- Si Streamotes no esta instalado, los textos flotantes permanecen como texto normal y no se altera su contenido.
-- La alpha.2 se conserva intacta; esta correccion vive en `release/0.1.0-alpha.3`.
+- Los hologramas/textos flotantes renderizan tokens explícitos `:Emote:` mediante Streamotes.
 
 ## 0.1.0-alpha.2
-- Conserva el selector de emotes, favoritos, recientes, busqueda y cache persistente de alpha.1.
-- Conserva el canal oficial Twitch/Streamotes `chainavt`.
-- Integra Placeholder API 2.4.2+1.21.
-- Registra placeholders propios de Chainacobblemon para jugador, servidor, Twitch y version.
-- Agrega puente opcional con LuckPerms para grupo primario, prefix, suffix y meta.
-- Los prefix/suffix conservan tokens `:Emote:` para que Streamotes pueda renderizarlos en contextos compatibles.
-- Agrega hologramas persistentes basados en un unico TextDisplayEntity vanilla por holograma multilinea (sin ArmorStands por linea).
-- Los hologramas aceptan Placeholder API y colores legacy `&`/`§`.
-- Agrega comandos `/chaina hologram ...` y `/chaina placeholder test ...`.
-- Agrega nodos de permisos `chainacobblemon.hologram.admin` y `chainacobblemon.placeholder.use` con LuckPerms y fallback OP.
-- Los hologramas compartidos usan contexto de servidor; placeholders dependientes de jugador quedan vacios en hologramas para evitar mostrar datos de un jugador a todos.
+- Placeholder API, LuckPerms y hologramas persistentes `TextDisplayEntity`.
 
 ## 0.1.0-alpha.1
-- Nuevo mod ID `chainacobblemon`.
-- Package propio `com.andrewbristowx.chainacobblemon`.
-- Canal Twitch/Streamotes cambiado a `chainavt`.
-- Selector de emotes, favoritos, recientes, busqueda y cache persistente conservados.
+- Base independiente, mod ID/package propios y selector de emotes para `chainavt`.
