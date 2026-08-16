@@ -1,5 +1,6 @@
 package com.andrewbristowx.chainacobblemon;
 
+import com.andrewbristowx.chainacobblemon.admin.AdminCommands;
 import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayAdminService;
@@ -38,5 +39,6 @@ public final class Chainacobblemon implements ModInitializer {
         HologramManager.initialize();
         ChainaCommands.register();
         SystemsCommands.register();
+        AdminCommands.register();
     }
 }
