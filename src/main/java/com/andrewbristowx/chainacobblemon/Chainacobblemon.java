@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 
 public final class Chainacobblemon implements ModInitializer {
     public static final String MOD_ID = "chainacobblemon";
-    public static final String VERSION = "0.2.0-alpha.3+1.21.1";
+    public static final String VERSION = "0.2.0-alpha.4+1.21.1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
