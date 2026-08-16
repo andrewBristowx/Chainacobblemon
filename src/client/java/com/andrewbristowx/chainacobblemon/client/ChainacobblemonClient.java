@@ -1,5 +1,6 @@
 package com.andrewbristowx.chainacobblemon.client;
 
+import com.andrewbristowx.chainacobblemon.client.challenge.ChallengeClient;
 import com.andrewbristowx.chainacobblemon.client.emote.ChatEmoteController;
 import com.andrewbristowx.chainacobblemon.client.gameplay.ChainaNpcRenderer;
 import com.andrewbristowx.chainacobblemon.client.gameplay.GameplayClient;
@@ -16,6 +17,7 @@ public final class ChainacobblemonClient implements ClientModInitializer {
         SystemsClient.initialize();
         GameplayClient.initialize();
         KitClient.initialize();
+        ChallengeClient.initialize();
         NpcSkinClient.initialize();
         EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC, context -> new ChainaNpcRenderer(context, false));
         EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC_SLIM, context -> new ChainaNpcRenderer(context, true));
