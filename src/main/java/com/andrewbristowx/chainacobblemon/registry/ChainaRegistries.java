@@ -2,9 +2,13 @@ package com.andrewbristowx.chainacobblemon.registry;
 
 import com.andrewbristowx.chainacobblemon.Chainacobblemon;
 import com.andrewbristowx.chainacobblemon.gacha.GachaTerminalBlock;
+import com.andrewbristowx.chainacobblemon.npc.ChainaNpcEntity;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.SpawnGroup;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
@@ -15,6 +19,9 @@ import net.minecraft.util.Identifier;
 public final class ChainaRegistries {
     public static final Item GACHA_TICKET = registerItem("gacha_ticket", new Item(new Item.Settings().maxCount(64)));
     public static final Item CHAINA_GACHA_TICKET = registerItem("chaina_gacha_ticket", new Item(new Item.Settings().maxCount(64)));
+
+    public static final EntityType<ChainaNpcEntity> CHAINA_NPC = registerNpc("chaina_npc");
+    public static final EntityType<ChainaNpcEntity> CHAINA_NPC_SLIM = registerNpc("chaina_npc_slim");
 
     public static final GachaTerminalBlock STANDARD_GACHA_MACHINE = registerBlockWithItem(
             "standard_gacha_machine",
@@ -28,13 +35,15 @@ public final class ChainaRegistries {
     private ChainaRegistries() {}
 
     public static void initialize() {
+        FabricDefaultAttributeRegistry.register(CHAINA_NPC, ChainaNpcEntity.createMobAttributes());
+        FabricDefaultAttributeRegistry.register(CHAINA_NPC_SLIM, ChainaNpcEntity.createMobAttributes());
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(entries -> {
             entries.add(STANDARD_GACHA_MACHINE);
             entries.add(CHAINA_GACHA_MACHINE);
             entries.add(GACHA_TICKET);
             entries.add(CHAINA_GACHA_TICKET);
         });
-        Chainacobblemon.LOGGER.info("Registered Chaina gasha machines and tickets");
+        Chainacobblemon.LOGGER.info("Registrados gashas, tickets y NPCs personalizados de Chaina");
     }
 
     private static Identifier id(String path) { return Identifier.of(Chainacobblemon.MOD_ID, path); }
@@ -44,5 +53,14 @@ public final class ChainaRegistries {
         registerBlock(path, block);
         Registry.register(Registries.ITEM, id(path), new BlockItem(block, new Item.Settings()));
         return block;
+    }
+    private static EntityType<ChainaNpcEntity> registerNpc(String path) {
+        return Registry.register(Registries.ENTITY_TYPE, id(path),
+                EntityType.Builder.create(ChainaNpcEntity::new, SpawnGroup.MISC)
+                        .dimensions(0.6F, 1.8F)
+                        .eyeHeight(1.62F)
+                        .maxTrackingRange(10)
+                        .trackingTickInterval(2)
+                        .build(Chainacobblemon.MOD_ID + ":" + path));
     }
 }
