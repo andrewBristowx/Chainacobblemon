@@ -55,6 +55,7 @@ jobs:
           python ci/port_emipokemon_alpha15_to_chaina.py /tmp/emipokemon-src /tmp/chainacobblemon
           python ci/post_transform_cleanup.py /tmp/chainacobblemon
           python ci/chaina_gui_palette.py /tmp/chainacobblemon
+          python ci/spanish_ui_cleanup.py /tmp/chainacobblemon
           test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
           test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java
           grep -q 'RESULT_STAGGER_MS = 135L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
