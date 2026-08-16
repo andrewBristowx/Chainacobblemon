@@ -1,6 +1,7 @@
 package com.andrewbristowx.chainacobblemon;
 
 import com.andrewbristowx.chainacobblemon.admin.AdminCommands;
+import com.andrewbristowx.chainacobblemon.challenge.ChallengeNetworking;
 import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayAdminService;
@@ -20,7 +21,7 @@ import org.slf4j.LoggerFactory;
 
 public final class Chainacobblemon implements ModInitializer {
     public static final String MOD_ID = "chainacobblemon";
-    public static final String VERSION = "0.2.0-alpha.4+1.21.1";
+    public static final String VERSION = "0.2.0-alpha.5+1.21.1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
@@ -35,6 +36,7 @@ public final class Chainacobblemon implements ModInitializer {
         GameplaySystems.initialize();
         GameplayAdminService.ensureDefaults();
         KitNetworking.initializeServer();
+        ChallengeNetworking.initializeServer();
         PlaceholderIntegration.register();
         HologramManager.initialize();
         ChainaCommands.register();
