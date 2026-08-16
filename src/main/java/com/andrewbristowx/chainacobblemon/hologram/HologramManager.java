@@ -2,6 +2,7 @@ package com.andrewbristowx.chainacobblemon.hologram;
 
 import com.andrewbristowx.chainacobblemon.Chainacobblemon;
 import com.andrewbristowx.chainacobblemon.integration.PlaceholderIntegration;
+import com.andrewbristowx.chainacobblemon.text.StreamotesText;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.entity.Entity;
@@ -144,7 +145,8 @@ public final class HologramManager {
         List<String> lines = definition.lines == null ? List.of() : definition.lines;
         for (int i = 0; i < lines.size(); i++) {
             if (i > 0) combined.append(Text.literal("\n"));
-            combined.append(PlaceholderIntegration.parseForServer(lines.get(i), current));
+            Text parsed = PlaceholderIntegration.parseForServer(lines.get(i), current);
+            combined.append(StreamotesText.markExplicitEmotes(parsed));
         }
         entity.setText(combined);
     }
