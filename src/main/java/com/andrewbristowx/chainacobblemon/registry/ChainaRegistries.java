@@ -20,15 +20,8 @@ public final class ChainaRegistries {
     public static final Item GACHA_TICKET = registerItem("gacha_ticket", new Item(new Item.Settings().maxCount(64)));
     public static final Item CHAINA_GACHA_TICKET = registerItem("chaina_gacha_ticket", new Item(new Item.Settings().maxCount(64)));
 
-    public static final EntityType<ChainaNpcEntity> CHAINA_NPC = Registry.register(
-            Registries.ENTITY_TYPE,
-            id("chaina_npc"),
-            EntityType.Builder.<ChainaNpcEntity>create(ChainaNpcEntity::new, SpawnGroup.MISC)
-                    .dimensions(0.6F, 1.8F)
-                    .maxTrackingRange(64)
-                    .trackingTickInterval(3)
-                    .build(Chainacobblemon.MOD_ID + ":chaina_npc")
-    );
+    public static final EntityType<ChainaNpcEntity> CHAINA_NPC = registerNpcType("chaina_npc");
+    public static final EntityType<ChainaNpcEntity> CHAINA_NPC_SLIM = registerNpcType("chaina_npc_slim");
 
     public static final GachaTerminalBlock STANDARD_GACHA_MACHINE = registerBlockWithItem(
             "standard_gacha_machine",
@@ -43,13 +36,26 @@ public final class ChainaRegistries {
 
     public static void initialize() {
         FabricDefaultAttributeRegistry.register(CHAINA_NPC, ChainaNpcEntity.createVillagerAttributes());
+        FabricDefaultAttributeRegistry.register(CHAINA_NPC_SLIM, ChainaNpcEntity.createVillagerAttributes());
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(entries -> {
             entries.add(STANDARD_GACHA_MACHINE);
             entries.add(CHAINA_GACHA_MACHINE);
             entries.add(GACHA_TICKET);
             entries.add(CHAINA_GACHA_TICKET);
         });
-        Chainacobblemon.LOGGER.info("Registered Chaina gasha machines, tickets and skinnable NPC entity");
+        Chainacobblemon.LOGGER.info("Registered Chaina gasha machines, tickets and wide/slim skinnable NPC entities");
+    }
+
+    private static EntityType<ChainaNpcEntity> registerNpcType(String path) {
+        return Registry.register(
+                Registries.ENTITY_TYPE,
+                id(path),
+                EntityType.Builder.<ChainaNpcEntity>create(ChainaNpcEntity::new, SpawnGroup.MISC)
+                        .dimensions(0.6F, 1.8F)
+                        .maxTrackingRange(64)
+                        .trackingTickInterval(3)
+                        .build(Chainacobblemon.MOD_ID + ":" + path)
+        );
     }
 
     private static Identifier id(String path) { return Identifier.of(Chainacobblemon.MOD_ID, path); }
