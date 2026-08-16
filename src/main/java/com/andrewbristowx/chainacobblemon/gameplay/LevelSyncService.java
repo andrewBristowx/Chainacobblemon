@@ -1,6 +1,7 @@
 package com.andrewbristowx.chainacobblemon.gameplay;
 
 import com.andrewbristowx.chainacobblemon.Chainacobblemon;
+import com.andrewbristowx.chainacobblemon.challenge.ChallengeService;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
@@ -63,7 +64,7 @@ public final class LevelSyncService {
         return true;
     }
 
-    public static void cancelStart(ServerPlayerEntity player) { restore(player, "battle_start_failed", false); }
+    public static void cancelStart(ServerPlayerEntity player) { restore(player, "battle_start_failed", false); ChallengeService.clearActive(player.getUuid()); }
     public static void markVictory(UUID playerUuid) { Session session = ACTIVE.get(playerUuid); if (session != null) session.victory = true; }
 
     public static void tick(MinecraftServer server, GameplayConfig.Performance performance) {
@@ -80,8 +81,10 @@ public final class LevelSyncService {
                 String trainer = session.trainerId, npc = session.npcId;
                 restore(player, "battle_ended", true);
                 GameplaySystems.onTrainerBattleFinished(player, trainer, npc, won);
+                ChallengeService.onBattleFinished(player, trainer, npc, won);
             } else if (!session.sawBattle && tick - session.startedTick > Math.max(40, performance.levelSyncStartTimeoutTicks)) {
                 restore(player, "battle_timeout", false);
+                ChallengeService.clearActive(player.getUuid());
             }
         }
     }
@@ -95,8 +98,8 @@ public final class LevelSyncService {
         player.sendMessage(net.minecraft.text.Text.literal("§aLevel Sync: se restauraron niveles pendientes de una sesión anterior."), false);
     }
 
-    public static void restoreOnDisconnect(ServerPlayerEntity player) { restore(player, "disconnect", false); }
-    public static void restoreAll(MinecraftServer server) { for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) restore(p, "server_stop", false); }
+    public static void restoreOnDisconnect(ServerPlayerEntity player) { restore(player, "disconnect", false); ChallengeService.clearActive(player.getUuid()); }
+    public static void restoreAll(MinecraftServer server) { for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) { restore(p, "server_stop", false); ChallengeService.clearActive(p.getUuid()); } }
 
     public static boolean restore(ServerPlayerEntity player, String reason, boolean silent) {
         Session session = ACTIVE.remove(player.getUuid());
