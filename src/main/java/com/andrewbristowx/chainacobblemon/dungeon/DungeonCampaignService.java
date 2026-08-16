@@ -6,11 +6,15 @@ import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
 import com.andrewbristowx.chainacobblemon.systems.ChainaSystems;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -29,9 +33,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Staged dungeon layer for Chaina. It intentionally binds gameplay to structures that already exist
- * in the world instead of generating duplicate structures. A dungeon is a region plus an ordered
- * list of generic objectives (mob_kill, pokemon_capture, trainer_win, mine, etc.).
+ * Staged dungeon layer for Chaina. It binds gameplay to existing structures instead of generating
+ * duplicates. Objectives are lightweight and server-authoritative; physical dungeon building stays
+ * in structure mods / world editing while this class owns progression, cooldowns and rewards.
  */
 public final class DungeonCampaignService {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
@@ -50,6 +54,18 @@ public final class DungeonCampaignService {
         initialized = true;
         settings = loadSettings();
         ServerTickEvents.END_SERVER_TICK.register(DungeonCampaignService::tick);
+        PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
+            if (!(player instanceof ServerPlayerEntity sp)) return;
+            String id = Registries.BLOCK.getId(state.getBlock()).toString();
+            if (state.isIn(BlockTags.LOGS)) recordAction(sp, "woodcut", id, 1);
+            else if (isFarmBlock(id)) recordAction(sp, "farm", id, 1);
+            else recordAction(sp, "mine", id, 1);
+        });
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+            Entity attacker = source.getAttacker();
+            if (!(attacker instanceof ServerPlayerEntity player)) return;
+            recordAction(player, "mob_kill", Registries.ENTITY_TYPE.getId(entity.getType()).toString(), 1);
+        });
         Chainacobblemon.LOGGER.info("Chaina staged dungeon campaigns initialized");
     }
 
@@ -77,9 +93,9 @@ public final class DungeonCampaignService {
                 if (!inside(player, dungeon)) {
                     if (data.leftRegionAt == 0) { data.leftRegionAt = now; save(player.getUuid(), data); }
                     else if (dungeon.resetOnLeave && now - data.leftRegionAt >= Math.max(5, dungeon.leaveGraceSeconds) * 1000L) resetSession(player, true, "left_region");
-                } else if (data.leftRegionAt != 0) {
-                    data.leftRegionAt = 0;
-                    save(player.getUuid(), data);
+                } else {
+                    if (data.leftRegionAt != 0) { data.leftRegionAt = 0; save(player.getUuid(), data); }
+                    checkExternalStage(player, dungeon, data);
                 }
                 continue;
             }
@@ -88,6 +104,7 @@ public final class DungeonCampaignService {
         }
     }
 
+    /** Generic event entrypoint. Supported immediately: mob_kill, mine, woodcut and farm. */
     public static void recordAction(ServerPlayerEntity player, String action, String target, int amount) {
         if (player == null || action == null || amount <= 0 || !settings().enabled) return;
         PlayerData pd = data(player.getUuid());
@@ -97,18 +114,35 @@ public final class DungeonCampaignService {
         Stage stage = dungeon.stages.get(pd.stageIndex);
         if (!action.equalsIgnoreCase(stage.action)) return;
         if (!matches(stage.match, target)) return;
+        advance(player, dungeon, pd, amount);
+    }
+
+    /** Trainer stages use the Chaina challenge ID in stage.match, not a raw entity UUID. */
+    private static void checkExternalStage(ServerPlayerEntity player, Dungeon dungeon, PlayerData pd) {
+        if (pd.stageIndex < 0 || pd.stageIndex >= dungeon.stages.size()) return;
+        Stage stage = dungeon.stages.get(pd.stageIndex);
+        if (!"trainer_win".equalsIgnoreCase(stage.action) && !"challenge_complete".equalsIgnoreCase(stage.action)) return;
+        if (stage.match == null || stage.match.isBlank()) return;
+        int wins = challengeWins(player, stage.match);
+        if (wins > pd.stageBaseline) advance(player, dungeon, pd, Math.max(1, stage.goal));
+    }
+
+    private static int challengeWins(ServerPlayerEntity player, String challengeId) {
+        for (ChallengeService.ChallengeView view : ChallengeService.views(player)) {
+            if (challengeId.equalsIgnoreCase(view.id)) return view.wins;
+        }
+        return 0;
+    }
+
+    private static void advance(ServerPlayerEntity player, Dungeon dungeon, PlayerData pd, int amount) {
+        Stage stage = dungeon.stages.get(pd.stageIndex);
         int old = pd.stageProgress;
-        pd.stageProgress = Math.min(Math.max(1, stage.goal), old + amount);
+        pd.stageProgress = Math.min(Math.max(1, stage.goal), old + Math.max(1, amount));
         save(player.getUuid(), pd);
         if (pd.stageProgress >= Math.max(1, stage.goal)) completeStage(player, dungeon, pd);
         else if (old != pd.stageProgress && stage.showProgress) {
             player.sendMessage(Text.literal("§6Dungeon §7» §f" + stage.displayName + " §8[§e" + pd.stageProgress + "§7/§e" + Math.max(1, stage.goal) + "§8]"), true);
         }
-    }
-
-    public static void onTrainerBattleFinished(ServerPlayerEntity player, String trainerId, boolean victory) {
-        if (!victory || trainerId == null) return;
-        recordAction(player, "trainer_win", trainerId, 1);
     }
 
     public static String forceStart(ServerPlayerEntity player, String id) {
@@ -132,6 +166,7 @@ public final class DungeonCampaignService {
         pd.stageProgress = 0;
         pd.sessionStartedAt = now;
         pd.leftRegionAt = 0;
+        captureStageBaseline(player, dungeon, pd);
         save(player.getUuid(), pd);
         player.sendMessage(Text.literal("§6§lDUNGEON §7» §fEntraste a §d" + dungeon.displayName + "§f."), false);
         announceStage(player, dungeon, pd);
@@ -147,8 +182,18 @@ public final class DungeonCampaignService {
             completeDungeon(player, dungeon, pd);
             return;
         }
+        captureStageBaseline(player, dungeon, pd);
         save(player.getUuid(), pd);
         announceStage(player, dungeon, pd);
+    }
+
+    private static void captureStageBaseline(ServerPlayerEntity player, Dungeon dungeon, PlayerData pd) {
+        pd.stageBaseline = 0;
+        if (pd.stageIndex < 0 || pd.stageIndex >= dungeon.stages.size()) return;
+        Stage stage = dungeon.stages.get(pd.stageIndex);
+        if (("trainer_win".equalsIgnoreCase(stage.action) || "challenge_complete".equalsIgnoreCase(stage.action)) && stage.match != null && !stage.match.isBlank()) {
+            pd.stageBaseline = challengeWins(player, stage.match);
+        }
     }
 
     private static void announceStage(ServerPlayerEntity player, Dungeon dungeon, PlayerData pd) {
@@ -172,6 +217,7 @@ public final class DungeonCampaignService {
         pd.activeDungeon = "";
         pd.stageIndex = 0;
         pd.stageProgress = 0;
+        pd.stageBaseline = 0;
         pd.sessionStartedAt = 0;
         pd.leftRegionAt = 0;
         save(player.getUuid(), pd);
@@ -185,6 +231,7 @@ public final class DungeonCampaignService {
         pd.activeDungeon = "";
         pd.stageIndex = 0;
         pd.stageProgress = 0;
+        pd.stageBaseline = 0;
         pd.sessionStartedAt = 0;
         pd.leftRegionAt = 0;
         save(player.getUuid(), pd);
@@ -196,7 +243,7 @@ public final class DungeonCampaignService {
         PlayerData pd = data(player.getUuid());
         if (pd.activeDungeon.isBlank()) return "No tienes una dungeon activa.";
         Dungeon d = find(pd.activeDungeon);
-        if (d == null) return "Dungeon activa inválida: " + pd.activeDungeon;
+        if (d == null || d.stages.isEmpty()) return "Dungeon activa inválida: " + pd.activeDungeon;
         int idx = Math.max(0, Math.min(pd.stageIndex, d.stages.size() - 1));
         Stage s = d.stages.get(idx);
         return d.displayName + " — etapa " + (idx + 1) + "/" + d.stages.size() + ": " + s.displayName + " (" + pd.stageProgress + "/" + Math.max(1, s.goal) + ")";
@@ -260,17 +307,23 @@ public final class DungeonCampaignService {
         String target = stage.match == null || stage.match.isBlank() ? "objetivos" : stage.match;
         return switch (stage.action) {
             case "mob_kill" -> "Derrota " + stage.goal + "x " + target;
-            case "pokemon_capture" -> "Captura " + stage.goal + " Pokémon";
-            case "pokemon_win" -> "Gana " + stage.goal + " combates Pokémon";
-            case "trainer_win" -> "Derrota al entrenador " + target;
+            case "trainer_win", "challenge_complete" -> "Supera el desafío de entrenador " + target;
             case "mine" -> "Mina " + stage.goal + " bloques";
+            case "woodcut" -> "Tala " + stage.goal + " troncos";
+            case "farm" -> "Cosecha " + stage.goal + " cultivos";
             default -> "Completa " + stage.goal + "x " + stage.action;
         };
     }
 
     private static boolean prerequisitesMet(ServerPlayerEntity player, Dungeon d) {
-        for (String challenge : d.requiredChallenges) if (!ChallengeService.isCompleted(player.getUuid(), challenge)) return false;
-        for (String quest : d.requiredQuests) if (!GameplaySystems.hasClaimedQuest(player, quest)) return false;
+        if (!d.requiredChallenges.isEmpty()) {
+            List<ChallengeService.ChallengeView> views = ChallengeService.views(player);
+            for (String challenge : d.requiredChallenges) {
+                boolean done = views.stream().anyMatch(v -> challenge.equalsIgnoreCase(v.id) && v.completed);
+                if (!done) return false;
+            }
+        }
+        // Quest prerequisites can be added later without touching the dungeon file format.
         return true;
     }
 
@@ -291,6 +344,10 @@ public final class DungeonCampaignService {
 
     private static Dungeon find(String id) { return id == null ? null : settings().dungeons.get(clean(id)); }
     private static String clean(String id) { return id == null ? "" : id.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]", "_"); }
+    private static boolean isFarmBlock(String id) {
+        String s = id.toLowerCase(Locale.ROOT);
+        return s.contains("wheat") || s.contains("carrot") || s.contains("potato") || s.contains("beetroot") || s.contains("crop") || s.contains("nether_wart");
+    }
 
     private static Settings loadSettings() {
         Settings value = defaults();
@@ -343,7 +400,7 @@ public final class DungeonCampaignService {
         sample.displayName = "Dungeon de ejemplo";
         sample.radius = 40;
         Stage mobs = new Stage(); mobs.id = "guardianes"; mobs.displayName = "Guardianes"; mobs.action = "mob_kill"; mobs.match = "minecraft:zombie"; mobs.goal = 5; mobs.instruction = "Derrota a 5 guardianes de prueba.";
-        Stage boss = new Stage(); boss.id = "boss"; boss.displayName = "Jefe"; boss.action = "trainer_win"; boss.match = "trainer_dungeon_boss"; boss.goal = 1; boss.instruction = "Derrota al entrenador jefe.";
+        Stage boss = new Stage(); boss.id = "boss"; boss.displayName = "Jefe"; boss.action = "trainer_win"; boss.match = "festival_novato"; boss.goal = 1; boss.instruction = "Supera el desafío de entrenador configurado como boss.";
         sample.stages.add(mobs); sample.stages.add(boss);
         sample.rewardBalance = 250; sample.rewardPassXp = 100;
         s.dungeons.put(sample.id, sample);
@@ -436,6 +493,7 @@ public final class DungeonCampaignService {
         public String activeDungeon = "";
         public int stageIndex;
         public int stageProgress;
+        public int stageBaseline;
         public long sessionStartedAt;
         public long leftRegionAt;
         public Map<String, Long> cooldownUntil = new HashMap<>();
