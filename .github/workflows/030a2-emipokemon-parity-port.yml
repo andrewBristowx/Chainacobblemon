@@ -53,6 +53,7 @@ jobs:
         run: |
           set -euxo pipefail
           python ci/port_emipokemon_alpha15_to_chaina.py /tmp/emipokemon-src /tmp/chainacobblemon
+          python ci/post_transform_cleanup.py /tmp/chainacobblemon
           test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
           test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java
           grep -q 'RESULT_STAGGER_MS = 135L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
@@ -60,6 +61,7 @@ jobs:
           grep -qi 'brock' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
           ! grep -R -nE '^(package|import) com\.chainacobblemon' /tmp/chainacobblemon/src
           ! find /tmp/chainacobblemon -type f | grep -Ei '/casino/|casino_|claw_machine|poker_table|blackjack_table|pokemon_wager'
+          ! grep -R -nEi 'eevee_gatito|snorlax_chaina|espurr_chaina|sprigatito_chaina|zorua_chaina|unown_67' /tmp/chainacobblemon/src/main/java /tmp/chainacobblemon/src/client/java
 
       - name: Compile faithful Chaina port
         working-directory: /tmp/chainacobblemon
@@ -81,6 +83,7 @@ jobs:
           unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.2+1.21.1'
           unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.class'
           unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.class'
           if unzip -l "$jar" | grep -Eqi 'casino|michicoin|emipokemon|emi_'; then
             echo 'Forbidden previous-project identity/casino path remains in jar' >&2
             exit 1
