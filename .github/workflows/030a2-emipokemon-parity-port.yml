@@ -54,6 +54,7 @@ jobs:
           set -euxo pipefail
           python ci/port_emipokemon_alpha15_to_chaina.py /tmp/emipokemon-src /tmp/chainacobblemon
           python ci/post_transform_cleanup.py /tmp/chainacobblemon
+          python ci/chaina_gui_palette.py /tmp/chainacobblemon
           test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
           test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java
           grep -q 'RESULT_STAGGER_MS = 135L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
@@ -62,6 +63,11 @@ jobs:
           ! grep -R -nE '^(package|import) com\.chainacobblemon' /tmp/chainacobblemon/src
           ! find /tmp/chainacobblemon -type f | grep -Ei '/casino/|casino_|claw_machine|poker_table|blackjack_table|pokemon_wager'
           ! grep -R -nEi 'eevee_gatito|snorlax_chaina|espurr_chaina|sprigatito_chaina|zorua_chaina|unown_67' /tmp/chainacobblemon/src/main/java /tmp/chainacobblemon/src/client/java
+          ! grep -R -nE '0xF5100915|0xFF75418E|0xFF613164|0xFF9D5AAF|0xFF170D1B' \
+              /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/admin/AdminScreen.java \
+              /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java \
+              /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/progress/QuestJournalScreen.java \
+              /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/shop/ShopScreen.java
 
       - name: Compile faithful Chaina port
         working-directory: /tmp/chainacobblemon
