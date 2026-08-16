@@ -4,6 +4,7 @@ import com.andrewbristowx.chainacobblemon.client.emote.ChatEmoteController;
 import com.andrewbristowx.chainacobblemon.client.gameplay.ChainaNpcRenderer;
 import com.andrewbristowx.chainacobblemon.client.gameplay.GameplayClient;
 import com.andrewbristowx.chainacobblemon.client.gameplay.NpcSkinClient;
+import com.andrewbristowx.chainacobblemon.client.rewards.KitClient;
 import com.andrewbristowx.chainacobblemon.client.systems.SystemsClient;
 import com.andrewbristowx.chainacobblemon.registry.ChainaRegistries;
 import net.fabricmc.api.ClientModInitializer;
@@ -14,6 +15,7 @@ public final class ChainacobblemonClient implements ClientModInitializer {
         ChatEmoteController.initialize();
         SystemsClient.initialize();
         GameplayClient.initialize();
+        KitClient.initialize();
         NpcSkinClient.initialize();
         EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC, ChainaNpcRenderer::new);
     }
