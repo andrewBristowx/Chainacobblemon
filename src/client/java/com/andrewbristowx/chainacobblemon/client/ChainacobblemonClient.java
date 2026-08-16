@@ -17,6 +17,7 @@ public final class ChainacobblemonClient implements ClientModInitializer {
         GameplayClient.initialize();
         KitClient.initialize();
         NpcSkinClient.initialize();
-        EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC, ChainaNpcRenderer::new);
+        EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC, context -> new ChainaNpcRenderer(context, false));
+        EntityRendererRegistry.register(ChainaRegistries.CHAINA_NPC_SLIM, context -> new ChainaNpcRenderer(context, true));
     }
 }
