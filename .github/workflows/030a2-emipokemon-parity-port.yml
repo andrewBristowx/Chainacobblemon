@@ -1,0 +1,97 @@
+name: Build Chainacobblemon 0.3.0-alpha.2 Emipokemon parity
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install transformer dependency
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Restore exact mature Emipokemon 0.5.0-alpha.15 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Emipokemon/actions/artifacts/9257343327/zip' \
+            -o /tmp/emipokemon-alpha15-artifact.zip
+          mkdir -p /tmp/emipokemon-artifact /tmp/emipokemon-src
+          unzip -q /tmp/emipokemon-alpha15-artifact.zip -d /tmp/emipokemon-artifact
+          srczip="$(find /tmp/emipokemon-artifact -name 'Emipokemon-0.5.0-alpha.15-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/emipokemon-src
+          test -f /tmp/emipokemon-src/src/client/java/com/emipokemon/client/gacha/GachaScreen.java
+          grep -q 'RESULT_STAGGER_MS = 135L' /tmp/emipokemon-src/src/client/java/com/emipokemon/client/gacha/GachaScreen.java
+          grep -q 'leader("brock"' /tmp/emipokemon-src/src/main/java/com/emipokemon/challenge/ChallengeCatalog.java
+
+      - name: Transform mature systems to Chaina identity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/port_emipokemon_alpha15_to_chaina.py /tmp/emipokemon-src /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
+          test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java
+          grep -q 'RESULT_STAGGER_MS = 135L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -q 'RESULT_POP_MS = 190L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -qi 'brock' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
+          ! grep -R -nE '^(package|import) com\.chainacobblemon' /tmp/chainacobblemon/src
+          ! find /tmp/chainacobblemon -type f | grep -Ei '/casino/|casino_|claw_machine|poker_table|blackjack_table|pokemon_wager'
+
+      - name: Compile faithful Chaina port
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon --stacktrace
+
+      - name: Verify identity, version and protected behavior
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=/tmp/chainacobblemon
+          jar="$(find "$src/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$jar"
+          unzip -p "$jar" fabric.mod.json | grep -q '"id": "chainacobblemon"'
+          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.2+1.21.1'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.class'
+          if unzip -l "$jar" | grep -Eqi 'casino|michicoin|emipokemon|emi_'; then
+            echo 'Forbidden previous-project identity/casino path remains in jar' >&2
+            exit 1
+          fi
+          mkdir -p /tmp/release
+          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.2+1.21.1.jar'
+          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.2-source.zip' . -x '.gradle/*' 'build/*')
+          sha256sum /tmp/release/Chainacobblemon-0.3.0-alpha.2+1.21.1.jar /tmp/release/Chainacobblemon-0.3.0-alpha.2-source.zip > /tmp/release/SHA256SUMS-0.3.0-alpha.2.txt
+          cat /tmp/release/SHA256SUMS-0.3.0-alpha.2.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.2-emipokemon-parity
+          path: /tmp/release/*
