@@ -5,6 +5,7 @@ import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
 import com.andrewbristowx.chainacobblemon.gameplay.ChainaParityBootstrap;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayGuiCommands;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayNetworking;
+import com.andrewbristowx.chainacobblemon.gameplay.GameplayProgressHooks;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
 import com.andrewbristowx.chainacobblemon.hologram.HologramManager;
 import com.andrewbristowx.chainacobblemon.integration.PlaceholderIntegration;
@@ -36,6 +37,7 @@ public final class Chainacobblemon implements ModInitializer {
         ChainaNpcInteraction.initialize();
         ChainaSystems.initialize();
         GameplaySystems.initialize();
+        GameplayProgressHooks.initialize();
         ChainaNpcController.initialize();
         ChainaParityBootstrap.initialize();
         PlaceholderIntegration.register();
