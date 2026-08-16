@@ -5,18 +5,18 @@ import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.data.DataTracker;
 import net.minecraft.entity.data.TrackedData;
 import net.minecraft.entity.data.TrackedDataHandlerRegistry;
-import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.world.World;
 
 import java.util.Locale;
 
-/** NPC inmóvil que usa modelo de jugador y skin sincronizada por ID. */
-public final class ChainaNpcEntity extends MobEntity {
+/** NPC persistente que usa modelo de jugador/skin, pero conserva compatibilidad lógica con VillagerEntity. */
+public final class ChainaNpcEntity extends VillagerEntity {
     private static final TrackedData<String> NPC_ID = DataTracker.registerData(ChainaNpcEntity.class, TrackedDataHandlerRegistry.STRING);
     private static final String NBT_ID = "ChainacobblemonNpcId";
 
-    public ChainaNpcEntity(EntityType<? extends ChainaNpcEntity> type, World world) {
+    public ChainaNpcEntity(EntityType<? extends VillagerEntity> type, World world) {
         super(type, world);
         setAiDisabled(true);
         setInvulnerable(true);
