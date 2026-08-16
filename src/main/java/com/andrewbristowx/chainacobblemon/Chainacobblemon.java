@@ -3,6 +3,8 @@ package com.andrewbristowx.chainacobblemon;
 import com.andrewbristowx.chainacobblemon.admin.AdminCommands;
 import com.andrewbristowx.chainacobblemon.challenge.ChallengeNetworking;
 import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
+import com.andrewbristowx.chainacobblemon.dungeon.DungeonCampaignCommands;
+import com.andrewbristowx.chainacobblemon.dungeon.DungeonCampaignService;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayAdminService;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayNetworking;
@@ -21,7 +23,7 @@ import org.slf4j.LoggerFactory;
 
 public final class Chainacobblemon implements ModInitializer {
     public static final String MOD_ID = "chainacobblemon";
-    public static final String VERSION = "0.2.0-alpha.5+1.21.1";
+    public static final String VERSION = "0.2.0-alpha.6+1.21.1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
@@ -37,10 +39,12 @@ public final class Chainacobblemon implements ModInitializer {
         GameplayAdminService.ensureDefaults();
         KitNetworking.initializeServer();
         ChallengeNetworking.initializeServer();
+        DungeonCampaignService.initialize();
         PlaceholderIntegration.register();
         HologramManager.initialize();
         ChainaCommands.register();
         SystemsCommands.register();
         AdminCommands.register();
+        DungeonCampaignCommands.register();
     }
 }
