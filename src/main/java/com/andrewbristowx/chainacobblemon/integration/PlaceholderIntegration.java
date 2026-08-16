@@ -1,6 +1,7 @@
 package com.andrewbristowx.chainacobblemon.integration;
 
 import com.andrewbristowx.chainacobblemon.Chainacobblemon;
+import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
 import com.andrewbristowx.chainacobblemon.systems.ChainaSystems;
 import com.andrewbristowx.chainacobblemon.text.LegacyText;
 import eu.pb4.placeholders.api.PlaceholderContext;
@@ -42,6 +43,13 @@ public final class PlaceholderIntegration {
             if (!ctx.hasPlayer()) return PlaceholderResult.value("false");
             return PlaceholderResult.value(Boolean.toString(ChainaSystems.pass().hasPremium(ctx.player())));
         });
+
+        register("balance", (ctx,arg) -> gameplayPlayer(ctx, player -> Long.toString(GameplaySystems.balance(player))));
+        register("currency", (ctx,arg) -> PlaceholderResult.value(GameplaySystems.config().economy.name));
+        register("currency_symbol", (ctx,arg) -> PlaceholderResult.value(GameplaySystems.config().economy.symbol));
+        register("jobs_active", (ctx,arg) -> gameplayPlayer(ctx, player -> Integer.toString(GameplaySystems.data(player).activeJobs.size())));
+        register("jobs_limit", (ctx,arg) -> gameplayPlayer(ctx, player -> GameplaySystems.jobLimit(player) == Integer.MAX_VALUE ? "∞" : Integer.toString(GameplaySystems.jobLimit(player))));
+        register("dungeon", (ctx,arg) -> PlaceholderResult.value(""));
         Chainacobblemon.LOGGER.info("Registered Chainacobblemon placeholders");
     }
 
@@ -53,6 +61,12 @@ public final class PlaceholderIntegration {
     private static PlaceholderResult systemsPlayer(PlaceholderContext context, java.util.function.Function<ChainaSystems.PlayerSystemsData, String> value) {
         if (!context.hasPlayer()) return PlaceholderResult.value(Text.empty());
         try { return PlaceholderResult.value(value.apply(ChainaSystems.data(context.player()))); }
+        catch (Exception ignored) { return PlaceholderResult.value(Text.empty()); }
+    }
+
+    private static PlaceholderResult gameplayPlayer(PlaceholderContext context, java.util.function.Function<ServerPlayerEntity, String> value) {
+        if (!context.hasPlayer()) return PlaceholderResult.value(Text.empty());
+        try { return PlaceholderResult.value(value.apply(context.player())); }
         catch (Exception ignored) { return PlaceholderResult.value(Text.empty()); }
     }
 

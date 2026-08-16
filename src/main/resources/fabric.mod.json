@@ -3,7 +3,7 @@
   "id": "chainacobblemon",
   "version": "${version}",
   "name": "Chainacobblemon",
-  "description": "Sistemas del servidor Cobblemon de Chaina: emotes, placeholders, rangos, hologramas, gasha, login diario y pase.",
+  "description": "Sistemas del servidor Cobblemon de Chaina: emotes, placeholders, rangos, hologramas, gasha, login diario, pase, equipo, economía, jobs, tienda, misiones, NPCs, entrenadores, Level Sync, hub y dungeons. Casino excluido.",
   "authors": ["Chaina Cobblemon Server Team"],
   "contact": {},
   "license": "All-Rights-Reserved",
