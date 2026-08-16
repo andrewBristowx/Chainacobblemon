@@ -23,6 +23,10 @@ public final class GameplayAdminService {
 
     public static synchronized void ensureDefaults() {
         GameplayConfig cfg = GameplaySystems.config();
+        if (cfg == null) {
+            ensureSkinFolder();
+            return;
+        }
         GameplayConfig defaults = GameplayConfig.defaults();
         boolean changed = false;
         if (cfg.chapters == null) { cfg.chapters = new LinkedHashMap<>(); changed = true; }
@@ -30,7 +34,6 @@ public final class GameplayAdminService {
         if (cfg.jobs == null) { cfg.jobs = new LinkedHashMap<>(defaults.jobs); changed = true; }
         if (cfg.shop == null) { cfg.shop = new LinkedHashMap<>(defaults.shop); changed = true; }
         if (cfg.quests == null) { cfg.quests = new LinkedHashMap<>(defaults.quests); changed = true; }
-        // Preserve administrator-customized entries, only fill metadata introduced by alpha.2.
         for (var e : cfg.jobs.entrySet()) {
             GameplayConfig.Job job = e.getValue(); GameplayConfig.Job fallback = defaults.jobs.get(e.getKey());
             if (job == null) continue;
