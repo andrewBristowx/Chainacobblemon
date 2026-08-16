@@ -1,9 +1,9 @@
-name: Build Chainacobblemon 0.3.0-alpha.3 Chaina parity fixes
+name: Build Chainacobblemon 0.3.0-alpha.4 layout and dialogue refinements
 
 on:
   push:
     branches:
-      - release/0.3.0-alpha.3
+      - release/0.3.0-alpha.4
   workflow_dispatch:
 
 permissions:
@@ -62,21 +62,25 @@ jobs:
           open('/tmp/alpha3_ui_fixes.py','wb').write(lzma.decompress(base64.b64decode(payload)))
           PY
           python /tmp/alpha3_ui_fixes.py /tmp/chainacobblemon
+          python ci/alpha4_layout_dialogue_fixes.py /tmp/chainacobblemon
           test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.java
           test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.java
           grep -q 'RESULT_STAGGER_MS = 135L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
           grep -q 'RESULT_POP_MS = 190L' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -q 'GASHA ESTÁNDAR DE CHAINA' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -q 'panelHeight = Math.min(210' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcDialogueScreen.java
+          grep -q '0xFF2D2E33' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcDialogueScreen.java
+          grep -q 'RECOMPENSA DIARIA", 748, 58' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          grep -q 'PASE INFINITO DE CHAINA", 760, 54' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/BattlePassScreen.java
           grep -q 'textures/trainers/single/' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/render/RctTrainerTextureResolver.java
-          grep -q 'findResources("textures/trainers/single"' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/render/RctTrainerTextureResolver.java
           grep -q 'String price = product.price + " ChaiBells"' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/shop/ShopProductButton.java
           grep -q 'drawBell(context' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/progress/QuestBookButton.java
-          grep -q '0xFF202124' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
           ! grep -R -nEi ' Michi|Michicoin' /tmp/chainacobblemon/src/main/java /tmp/chainacobblemon/src/client/java
           ! grep -R -nE '^(package|import) com\.chainacobblemon' /tmp/chainacobblemon/src
           ! find /tmp/chainacobblemon -type f | grep -Ei '/casino/|casino_|claw_machine|poker_table|blackjack_table|pokemon_wager'
           ! grep -R -nEi 'eevee_gatito|snorlax_chaina|espurr_chaina|sprigatito_chaina|zorua_chaina|unown_67' /tmp/chainacobblemon/src/main/java /tmp/chainacobblemon/src/client/java
 
-      - name: Compile alpha.3 Chaina parity candidate
+      - name: Compile alpha.4 Chaina candidate
         working-directory: /tmp/chainacobblemon
         shell: bash
         run: |
@@ -93,9 +97,9 @@ jobs:
           jar="$(find "$src/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
           test -n "$jar"
           unzip -p "$jar" fabric.mod.json | grep -q '"id": "chainacobblemon"'
-          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.3+1.21.1'
+          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.4+1.21.1'
           unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/challenge/ChallengeCatalog.class'
-          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/npc/NpcEditorScreen.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/npc/NpcDialogueScreen.class'
           unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.class'
           unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/render/RctTrainerTextureResolver.class'
           if unzip -l "$jar" | grep -Eqi 'casino|michicoin|emipokemon|emi_'; then
@@ -103,12 +107,12 @@ jobs:
             exit 1
           fi
           mkdir -p /tmp/release
-          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.3+1.21.1.jar'
-          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.3-source.zip' . -x '.gradle/*' 'build/*')
-          sha256sum /tmp/release/Chainacobblemon-0.3.0-alpha.3+1.21.1.jar /tmp/release/Chainacobblemon-0.3.0-alpha.3-source.zip > /tmp/release/SHA256SUMS-0.3.0-alpha.3.txt
-          cat /tmp/release/SHA256SUMS-0.3.0-alpha.3.txt
+          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.4+1.21.1.jar'
+          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.4-source.zip' . -x '.gradle/*' 'build/*')
+          sha256sum /tmp/release/Chainacobblemon-0.3.0-alpha.4+1.21.1.jar /tmp/release/Chainacobblemon-0.3.0-alpha.4-source.zip > /tmp/release/SHA256SUMS-0.3.0-alpha.4.txt
+          cat /tmp/release/SHA256SUMS-0.3.0-alpha.4.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Chainacobblemon-0.3.0-alpha.3-chaina-ui-fixes
+          name: Chainacobblemon-0.3.0-alpha.4-layout-dialogue-fixes
           path: /tmp/release/*
