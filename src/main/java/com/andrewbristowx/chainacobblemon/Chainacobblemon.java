@@ -4,6 +4,7 @@ import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayNetworking;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
+import com.andrewbristowx.chainacobblemon.gameplay.NpcVisualEntityService;
 import com.andrewbristowx.chainacobblemon.hologram.HologramManager;
 import com.andrewbristowx.chainacobblemon.integration.PlaceholderIntegration;
 import com.andrewbristowx.chainacobblemon.integration.StreamotesServerIntegration;
@@ -26,8 +27,8 @@ public final class Chainacobblemon implements ModInitializer {
         ChainaEquipment.initialize();
         StreamotesServerIntegration.ensureOfficialChannel();
         ChainaSystems.initialize();
-        // Register the visual player/admin menu interception before the legacy gameplay interaction callback.
         GameplayNetworking.initializeServer();
+        NpcVisualEntityService.initialize();
         GameplaySystems.initialize();
         PlaceholderIntegration.register();
         HologramManager.initialize();
