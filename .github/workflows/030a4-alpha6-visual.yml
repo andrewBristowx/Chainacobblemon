@@ -1,0 +1,104 @@
+name: Build Chainacobblemon 0.3.0-alpha.6 visual refresh
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.6
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install visual build dependency
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Restore exact Chainacobblemon alpha.5 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9271582556/zip' \
+            -o /tmp/alpha5-artifact.zip
+          mkdir -p /tmp/alpha5-artifact /tmp/chainacobblemon
+          unzip -q /tmp/alpha5-artifact.zip -d /tmp/alpha5-artifact
+          srczip="$(find /tmp/alpha5-artifact -name 'Chainacobblemon-0.3.0-alpha.5-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          test -f /tmp/chainacobblemon/src/main/resources/com/emiprotecciones/EmiProtecciones.class
+          test -f /tmp/chainacobblemon/src/main/resources/com/andrewbristowx/cobbleeventalerts/CobbleEventAlerts.class
+
+      - name: Apply alpha.6 Chaina visual and UI refresh
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/alpha6/apply_alpha6.py /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.6+1.21.1' /tmp/chainacobblemon/gradle.properties
+          grep -q 'REGRESA CUANDO' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          grep -q '0xFFFFF4E8' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -q 'chaina_bell' /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/geo/chaina_gacha_machine.geo.json
+          test -s /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/textures/item/gacha_ticket.png
+          test -s /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/textures/models/armor/chaina_gecko_armor.png
+
+      - name: Compile Chainacobblemon alpha.6
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon --stacktrace
+
+      - name: Verify alpha.6 jar and integrated systems
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=/tmp/chainacobblemon
+          jar="$(find "$src/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$jar"
+          unzip -p "$jar" fabric.mod.json | grep -q '"id": "chainacobblemon"'
+          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.6+1.21.1'
+          unzip -l "$jar" | grep -q 'com/emiprotecciones/EmiProtecciones.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/cobbleeventalerts/CobbleEventAlerts.class'
+          unzip -p "$jar" assets/chainacobblemon/geo/chaina_gacha_machine.geo.json | grep -q 'chaina_bell'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/geo/armor/chaina_armor.geo.json'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/item/gacha_ticket.png'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/item/chaina_special_banner_ticket.png'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/item/treasure_gacha_ticket.png'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/item/chaina_sword.png'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/models/armor/chaina_gecko_armor.png'
+
+          mkdir -p /tmp/release
+          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.6+1.21.1.jar'
+          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.6-source.zip' . -x '.gradle/*' 'build/*')
+          sha256sum \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.6+1.21.1.jar \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.6-source.zip \
+            > /tmp/release/SHA256SUMS-0.3.0-alpha.6.txt
+          cat /tmp/release/SHA256SUMS-0.3.0-alpha.6.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.6
+          path: /tmp/release/*
