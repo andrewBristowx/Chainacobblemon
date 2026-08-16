@@ -2,6 +2,7 @@ package com.andrewbristowx.chainacobblemon;
 
 import com.andrewbristowx.chainacobblemon.command.ChainaCommands;
 import com.andrewbristowx.chainacobblemon.equipment.ChainaEquipment;
+import com.andrewbristowx.chainacobblemon.gameplay.GameplayAdminService;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplayNetworking;
 import com.andrewbristowx.chainacobblemon.gameplay.GameplaySystems;
 import com.andrewbristowx.chainacobblemon.gameplay.NpcVisualEntityService;
@@ -30,6 +31,7 @@ public final class Chainacobblemon implements ModInitializer {
         GameplayNetworking.initializeServer();
         NpcVisualEntityService.initialize();
         GameplaySystems.initialize();
+        GameplayAdminService.ensureDefaults();
         PlaceholderIntegration.register();
         HologramManager.initialize();
         ChainaCommands.register();
