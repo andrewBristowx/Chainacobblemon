@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": {"model":"chainacobblemon:block/standard_gacha_machine"},
+    "facing=east": {"model":"chainacobblemon:block/standard_gacha_machine","y":90},
+    "facing=south": {"model":"chainacobblemon:block/standard_gacha_machine","y":180},
+    "facing=west": {"model":"chainacobblemon:block/standard_gacha_machine","y":270}
+  }
+}
