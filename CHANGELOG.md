@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-alpha.4
+- Añade el primer gasha funcional de Chaina con banner estándar y banner especial Chaina.
+- Añade tickets físicos separados, tiradas x1/x10, tiradas virtuales, soft pity, hard pity, shiny y entrega server-side mediante Cobblemon.
+- El gasha devuelve el ticket/tirada virtual si falla la entrega del Pokémon.
+- Añade dos máquinas físicas provisionales: estándar y Chaina. La versión Chaina usa una presentación temporal blanco/negro/rosa; el modelo 3D final se hará después.
+- Añade login diario server-authoritative con zona horaria configurable, racha, reclamos, premios ponderados y recuperación de ítems pendientes tras reconectar.
+- Añade pase infinito con pista gratis y premium, XP por tiempo activo, páginas, reclamos retroactivos y premios en tiradas Chaina.
+- El premium del pase usa `chainacobblemon.pass.premium` mediante LuckPerms, con OP como fallback de desarrollo.
+- Añade GUIs originales de Chaina dibujadas en código con carbón/coral/dorado/sakura, sin reutilizar fondos ni assets visuales de Emi.
+- Añade `config/chainacobblemon/systems.json` y persistencia independiente por UUID en `config/chainacobblemon/players/`.
+- Añade placeholders para pity, tiradas, login diario y pase.
+- Añade comandos `/chaina gacha`, `/chaina daily`, `/chaina pass` y utilidades admin para pruebas.
+- Mantiene intacta la alpha.3 y no introduce Michicoins, IDs `emi_*`, Pokémon custom Emi ni assets Emi.
+
 ## 0.1.0-alpha.3
 - Los hologramas/textos flotantes ahora marcan los tokens explicitos `:Emote:` con el mismo estilo interno que Streamotes usa para sus glifos.
 - Streamotes puede renderizar esos emotes dentro de `TextDisplayEntity`, no solo dentro del chat.
