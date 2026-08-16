@@ -176,7 +176,7 @@ public final class GameplayCommands {
                             .then(literal("complete")
                                     .requires(s -> PermissionBridge.check(s, GameplaySystems.ADMIN, 2))
                                     .then(argument("id", StringArgumentType.word())
-                                            .executes(c -> message(c.getSource(), GameplaySystems.completeDungeon(c.getSource().getPlayerOrThrow(), StringArgumentType.getString(c, "id"), "admin"))))))));
+                                            .executes(c -> message(c.getSource(), GameplaySystems.completeDungeon(c.getSource().getPlayerOrThrow(), StringArgumentType.getString(c, "id"), "admin")))))));
 
             dispatcher.register(literal("chaina")
                     .then(literal("gameplay")
