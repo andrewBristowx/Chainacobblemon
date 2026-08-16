@@ -2,9 +2,9 @@
 
 Base independiente para el servidor Cobblemon de Chaina (Minecraft 1.21.1, Fabric, Java 21).
 
-## 0.1.0-alpha.2
+## 0.1.0-alpha.3
 
-Esta alpha mantiene el subsistema de emotes de alpha.1 y agrega la primera capa reutilizable de textos flotantes, placeholders y rangos.
+Esta alpha corrige los emotes dentro de los textos flotantes sin modificar la alpha.2.
 
 ### Emotes
 - selector dentro del chat;
@@ -12,7 +12,10 @@ Esta alpha mantiene el subsistema de emotes de alpha.1 y agrega la primera capa 
 - canal oficial `chainavt`;
 - favoritos, recientes, busqueda y cache local persistente;
 - insercion `:Emote:` manteniendo el foco del chat;
-- tokens de emote preservados dentro de prefixes/suffixes de rango.
+- tokens de emote preservados dentro de prefixes/suffixes de rango;
+- tokens explicitos `:Emote:` renderizables tambien dentro de hologramas `TextDisplayEntity`.
+
+La integracion de hologramas reutiliza el mismo marcador de estilo que Streamotes reconoce al dibujar sus glifos. Asi no se crean entidades extra por emote ni se descargan imagenes por separado para cada holograma.
 
 ### Placeholder API
 Requiere `placeholder-api 2.4.2+1.21`.
@@ -48,9 +51,12 @@ Comandos:
 - `/chaina hologram refresh <id>`
 - `/chaina hologram list`
 
-Ejemplo:
+Ejemplos:
 `/chaina hologram line bienvenida 1 &dBienvenido a Chaina Cobblemon`
 `/chaina hologram addline bienvenida &fJugadores: &a%chainacobblemon:online%`
+`/chaina hologram line bienvenida 1 &d:4Evil: &fBienvenido`
+
+Para que `:4Evil:` se vea como imagen, Streamotes debe estar instalado y haber cargado ese emote en el cliente. Si Streamotes no esta presente, el holograma conserva el texto sin aplicar el marcador especial.
 
 Los hologramas se guardan en `config/chainacobblemon/holograms.json`.
 
