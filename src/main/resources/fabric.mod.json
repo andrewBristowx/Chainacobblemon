@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "chainacobblemon",
+  "version": "0.1.0-alpha.1+1.21.1",
+  "name": "Chainacobblemon",
+  "description": "Base tecnica independiente para el servidor Cobblemon de Chaina. Primera alpha: selector de emotes, chat y cache persistente.",
+  "authors": ["Chaina Cobblemon Server Team"],
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {"main": ["com.andrewbristowx.chainacobblemon.Chainacobblemon"]},
+  "depends": {"fabricloader": ">=0.18.4", "minecraft": "~1.21.1", "java": ">=21", "fabric-api": "*"},
+  "recommends": {"streamotes": "=1.2.12+1.21"}
+}
