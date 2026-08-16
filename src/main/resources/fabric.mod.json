@@ -1,13 +1,28 @@
 {
   "schemaVersion": 1,
   "id": "chainacobblemon",
-  "version": "0.1.0-alpha.1+1.21.1",
+  "version": "${version}",
   "name": "Chainacobblemon",
-  "description": "Base tecnica independiente para el servidor Cobblemon de Chaina. Primera alpha: selector de emotes, chat y cache persistente.",
+  "description": "Sistemas del servidor Cobblemon de Chaina: emotes, placeholders, rangos, hologramas, gasha, login diario, pase, equipo, economía, jobs, tienda, misiones, NPCs, entrenadores, Level Sync, hub y dungeons. Casino excluido.",
   "authors": ["Chaina Cobblemon Server Team"],
+  "contact": {},
   "license": "All-Rights-Reserved",
   "environment": "*",
-  "entrypoints": {"main": ["com.andrewbristowx.chainacobblemon.Chainacobblemon"]},
-  "depends": {"fabricloader": ">=0.18.4", "minecraft": "~1.21.1", "java": ">=21", "fabric-api": "*"},
-  "recommends": {"streamotes": "=1.2.12+1.21"}
+  "entrypoints": {
+    "main": ["com.andrewbristowx.chainacobblemon.Chainacobblemon"],
+    "client": ["com.andrewbristowx.chainacobblemon.client.ChainacobblemonClient"]
+  },
+  "mixins": [{"config":"chainacobblemon.client.mixins.json","environment":"client"}],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "placeholder-api": ">=2.4.2"
+  },
+  "recommends": {
+    "cobblemon": ">=1.7.3",
+    "streamotes": "=1.2.12+1.21",
+    "luckperms": ">=5.4.0"
+  }
 }
