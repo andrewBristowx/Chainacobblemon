@@ -4,6 +4,7 @@ import com.andrewbristowx.chainacobblemon.Chainacobblemon;
 import com.andrewbristowx.chainacobblemon.registry.ChainaRegistries;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityType;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -12,7 +13,7 @@ import net.minecraft.util.Identifier;
 
 import java.util.UUID;
 
-/** Converts legacy alpha.1 managed villagers to the skinnable Chaina NPC entity without losing config IDs. */
+/** Keeps managed NPCs on the correct skinnable wide/slim Chaina entity type. */
 public final class NpcVisualEntityService {
     private static int ticks;
     private static boolean initialized;
@@ -38,11 +39,14 @@ public final class NpcVisualEntityService {
             if (world == null) continue;
             Entity old;
             try { old = world.getEntity(UUID.fromString(npc.entityUuid)); } catch (Exception ignored) { continue; }
-            if (old instanceof ChainaNpcEntity) continue;
-            if (!(old instanceof VillagerEntity villager) || old.isRemoved()) continue;
+            if (old == null || old.isRemoved()) continue;
 
-            ChainaNpcEntity replacement = new ChainaNpcEntity(ChainaRegistries.CHAINA_NPC, world);
-            replacement.refreshPositionAndAngles(villager.getX(), villager.getY(), villager.getZ(), villager.getYaw(), villager.getPitch());
+            EntityType<ChainaNpcEntity> desired = npc.slim ? ChainaRegistries.CHAINA_NPC_SLIM : ChainaRegistries.CHAINA_NPC;
+            if (old instanceof ChainaNpcEntity && old.getType() == desired) continue;
+            if (!(old instanceof VillagerEntity)) continue;
+
+            ChainaNpcEntity replacement = new ChainaNpcEntity(desired, world);
+            replacement.refreshPositionAndAngles(old.getX(), old.getY(), old.getZ(), old.getYaw(), old.getPitch());
             replacement.setAiDisabled(true);
             replacement.setInvulnerable(true);
             replacement.setSilent(true);
@@ -57,7 +61,7 @@ public final class NpcVisualEntityService {
         if (changed) {
             GameplaySystems.saveConfig();
             NpcSkinNetworking.broadcastNpcMap();
-            Chainacobblemon.LOGGER.info("NPCs Chaina migrados al renderizador de skins personalizado");
+            Chainacobblemon.LOGGER.info("NPCs Chaina reconciliados con su modelo wide/slim configurado");
         }
     }
 
