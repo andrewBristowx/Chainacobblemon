@@ -45,6 +45,8 @@ jobs:
           set -euxo pipefail
           cat ci/alpha15/overlay.part00 ci/alpha15/overlay.part01 ci/alpha15/overlay.part02 ci/alpha15/overlay.part03 ci/alpha15/overlay.part04 ci/alpha15/overlay.part05 ci/alpha15/overlay.part06 ci/alpha15/overlay.part07 ci/alpha15/overlay.part08 ci/alpha15/overlay.part09 | base64 -d > /tmp/alpha15-overlay.tar.gz
           tar -xzf /tmp/alpha15-overlay.tar.gz -C /tmp/chainacobblemon
+          base64 -d ci/alpha15/fix1.b64 > /tmp/alpha15-fix1.tar.gz
+          tar -xzf /tmp/alpha15-fix1.tar.gz -C /tmp/chainacobblemon
           grep -q '0.3.0-alpha.15' /tmp/chainacobblemon/gradle.properties
 
       - name: Compile Chainacobblemon alpha.15
