@@ -23,11 +23,7 @@ jobs:
           src="$(find /tmp/unpack -type d -path '*/blockbench/pokemon/gen1/0134_vaporeon' -print -quit)"
           test -n "$src"
           cp -a "$src" /tmp/out/0134_vaporeon
-          cat > /tmp/out/README.txt <<'EOF'
-Official editable Vaporeon working assets from Cable / Cobblemon Assets.
-Source folder: blockbench/pokemon/gen1/0134_vaporeon
-Open the included Blockbench project/model files to edit Vaporeon.
-EOF
+          printf '%s\n' 'Official editable Vaporeon working assets from Cable / Cobblemon Assets.' 'Source folder: blockbench/pokemon/gen1/0134_vaporeon' 'Open the included Blockbench project/model files to edit Vaporeon.' > /tmp/out/README.txt
           cd /tmp/out
           zip -qr /tmp/Vaporeon-Cobblemon-Editable.zip .
           unzip -l /tmp/Vaporeon-Cobblemon-Editable.zip
