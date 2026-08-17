@@ -47,6 +47,17 @@ jobs:
           gzip -dc /tmp/apply_alpha13.py.gz > /tmp/apply_alpha13.py
           cd /tmp/chainacobblemon
           python3 /tmp/apply_alpha13.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/main/java/com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.java')
+          s = p.read_text()
+          s = s.replace('import com.cobblemon.mod.common.entity.pokemon.PokemonEntity;\n', '')
+          old = '''        List<PokemonEntity> pokemon = world.getEntitiesByClass(PokemonEntity.class, box, entity -> true);\n        for (PokemonEntity entity : pokemon) {\n            if (!entity.isRemoved()) entity.discard();\n        }'''
+          new = '''        List<net.minecraft.entity.Entity> pokemon = world.getOtherEntities(null, box, entity ->\n            entity.getClass().getName().equals("com.cobblemon.mod.common.entity.pokemon.PokemonEntity")\n        );\n        for (net.minecraft.entity.Entity entity : pokemon) {\n            if (!entity.isRemoved()) entity.discard();\n        }'''
+          if old not in s:
+              raise SystemExit('Tower cleanup block not found')
+          p.write_text(s.replace(old, new))
+          PY
 
       - name: Compile Chainacobblemon alpha.13
         working-directory: /tmp/chainacobblemon
