@@ -1,0 +1,117 @@
+name: Build Chainacobblemon 0.3.0-alpha.23 Treasure Parkour Balance
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.23
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.22 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9301419262/zip' \
+            -o /tmp/alpha22-artifact.zip
+          rm -rf /tmp/alpha22-artifact /tmp/chainacobblemon
+          mkdir -p /tmp/alpha22-artifact /tmp/chainacobblemon
+          unzip -q /tmp/alpha22-artifact.zip -d /tmp/alpha22-artifact
+          srczip="$(find /tmp/alpha22-artifact -name 'Chainacobblemon-0.3.0-alpha.22-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+
+      - name: Apply alpha.23 lighting and parkour balance
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/alpha23/apply.py
+          sed -i 's/mod_version=0.3.0-alpha.22+1.21.1/mod_version=0.3.0-alpha.23+1.21.1/' /tmp/chainacobblemon/gradle.properties
+          grep -q 'mod_version=0.3.0-alpha.23+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Compile Chainacobblemon alpha.23
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon
+
+      - name: Verify alpha.23 Treasure changes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.23*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -n "$jarfile"
+          rm -rf /tmp/jarcheck && mkdir -p /tmp/jarcheck
+          cd /tmp/jarcheck
+          jar xf "/tmp/chainacobblemon/$jarfile"
+          grep -q '0.3.0-alpha.23' fabric.mod.json
+          src='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java'
+          grep -q 'case 1 -> 9' "$src"
+          grep -q 'default -> 20' "$src"
+          grep -q 'placeInvisibleLight(world, center.up(4))' "$src"
+          grep -q 'placeInvisibleLight(world, midpoint)' "$src"
+          grep -q 'for (BlockPos platform : platforms) placeInvisibleLight(world, platform.up(4))' "$src"
+          grep -q 'if (dy > 0)' "$src"
+          grep -q 'dx = 2; // safe one-block ascent' "$src"
+          ! grep -q 'dx = (stars >= 4 && i % 5 == 0) ? 4 : 3' "$src"
+          python - <<'PY'
+          # Mirror the generated parkour delta rules and reject any impossible vertical transition.
+          side = [0,1,0,-1,-2,-1,0,1,2,1,0,-1]
+          counts = {1:9,2:11,3:14,4:17,5:20}
+          for stars, jumps in counts.items():
+              x=y=z=rel=0
+              for i in range(1, jumps+1):
+                  desired = side[(i+stars) % len(side)]
+                  dz = desired-z
+                  if dz > 1: desired=z+1
+                  if dz < -1: desired=z-1
+                  dy=0
+                  if stars >= 2 and i % 5 == 2 and rel < 2: dy=1
+                  elif stars >= 3 and i % 5 == 4 and rel > 0: dy=-1
+                  elif stars >= 4 and i % 7 == 0 and rel < 2: dy=1
+                  if rel+dy < 0 or rel+dy > 2: dy=0
+                  dx = 2 if dy > 0 else ((3 if i % 4 == 0 else 2) if stars == 1 else ((3 if i % 3 == 0 else 2) if stars <= 3 else (3 if i % 2 == 0 else 2)))
+                  assert abs(dy) <= 1
+                  assert not (dy > 0 and dx > 2)
+                  assert abs(desired-z) <= 1
+                  rel += dy; x += dx; y += dy; z = desired
+          PY
+
+      - name: Package source and checksums
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          rm -rf /tmp/out && mkdir -p /tmp/out
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.23*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          cp "$jarfile" /tmp/out/Chainacobblemon-0.3.0-alpha.23+1.21.1.jar
+          zip -qr /tmp/out/Chainacobblemon-0.3.0-alpha.23-source.zip . -x './.gradle/*' './build/*'
+          cd /tmp/out
+          sha256sum Chainacobblemon-0.3.0-alpha.23+1.21.1.jar Chainacobblemon-0.3.0-alpha.23-source.zip > SHA256SUMS-0.3.0-alpha.23.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.23
+          path: /tmp/out/*
