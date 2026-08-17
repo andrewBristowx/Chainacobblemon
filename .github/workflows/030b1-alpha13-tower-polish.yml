@@ -1,0 +1,103 @@
+name: Build Chainacobblemon 0.3.0-alpha.13 Tower polish
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.13
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.12 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9275176425/zip' \
+            -o /tmp/alpha12-artifact.zip
+          mkdir -p /tmp/alpha12-artifact /tmp/chainacobblemon
+          unzip -q /tmp/alpha12-artifact.zip -d /tmp/alpha12-artifact
+          srczip="$(find /tmp/alpha12-artifact -name 'Chainacobblemon-0.3.0-alpha.12-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+
+      - name: Apply alpha.13 Tower polish overlay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/alpha13/overlay.part1 ci/alpha13/overlay.part2 ci/alpha13/overlay.part3 ci/alpha13/overlay.part4 > /tmp/a13.b64
+          base64 -d /tmp/a13.b64 > /tmp/apply_alpha13.py.gz
+          gzip -dc /tmp/apply_alpha13.py.gz > /tmp/apply_alpha13.py
+          cd /tmp/chainacobblemon
+          python3 /tmp/apply_alpha13.py
+          grep -RIl '0.3.0-alpha.12' . --exclude-dir=.gradle --exclude-dir=build | xargs -r sed -i 's/0.3.0-alpha.12/0.3.0-alpha.13/g'
+
+      - name: Compile Chainacobblemon alpha.13
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon
+
+      - name: Verify alpha.13 Tower polish
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.13*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -n "$jarfile"
+          rm -rf /tmp/jarcheck && mkdir -p /tmp/jarcheck
+          cd /tmp/jarcheck
+          jar xf "/tmp/chainacobblemon/$jarfile"
+          grep -q '0.3.0-alpha.13' fabric.mod.json
+          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerService > /tmp/tower.javap
+          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerCommands > /tmp/towercmd.javap
+          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.client.render.CustomNpcRenderer > /tmp/npcrender.javap
+          grep -q 'TORRE DESAF' /tmp/tower.javap
+          grep -q 'SUBIDA DE DIFICULTAD' /tmp/tower.javap
+          grep -q 'PokemonEntity' /tmp/tower.javap
+          grep -q 'forceCelebration' /tmp/tower.javap
+          grep -q 'forceCleanup' /tmp/tower.javap
+          grep -q 'forceHeal' /tmp/tower.javap
+          grep -q 'celebrate' /tmp/towercmd.javap
+          grep -q 'cleanup' /tmp/towercmd.javap
+          grep -q 'heal' /tmp/towercmd.javap
+          grep -q 'resolveTower' /tmp/npcrender.javap
+          grep -q 'kommo-o' /tmp/tower.javap
+          ! grep -q 'kommo_o' /tmp/tower.javap
+
+      - name: Package source and checksums
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          mkdir -p /tmp/out
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.13*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          cp "$jarfile" /tmp/out/Chainacobblemon-0.3.0-alpha.13+1.21.1.jar
+          zip -qr /tmp/out/Chainacobblemon-0.3.0-alpha.13-source.zip . -x './.gradle/*' './build/*'
+          cd /tmp/out
+          sha256sum Chainacobblemon-0.3.0-alpha.13+1.21.1.jar Chainacobblemon-0.3.0-alpha.13-source.zip > SHA256SUMS-0.3.0-alpha.13.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.13
+          path: /tmp/out/*
