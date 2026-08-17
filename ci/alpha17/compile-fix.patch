@@ -1,0 +1,135 @@
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+@@ -6,7 +6,6 @@
+ import com.cobblemon.mod.common.api.events.CobblemonEvents;
+ import com.cobblemon.mod.common.api.events.fishing.BobberSpawnPokemonEvent;
+ import com.cobblemon.mod.common.api.events.pokemon.PokemonCapturedEvent;
+-import com.cobblemon.mod.common.entity.pokemon.PokemonEntity;
+ import com.cobblemon.mod.common.pokemon.Pokemon;
+ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+@@ -189,8 +188,9 @@
+     private static void onCapture(PokemonCapturedEvent event) {
+         Active a = active;
+         if (a == null || a.phase != Phase.RUNNING || (a.type != ChainaEventType.SAFARI && a.type != ChainaEventType.FISHING)) return;
+-        Pokemon pokemon = event.getPokemon();
+-        ServerPlayerEntity player = event.getPlayer();
++        Object pokemonValue = reflected(event, "getPokemon");
++        Pokemon pokemon = pokemonValue instanceof Pokemon p ? p : null;
++        ServerPlayerEntity player = reflectedPlayer(event, pokemon);
+         if (player == null || pokemon == null) return;
+         Participant p = a.participants.get(player.getUuid());
+         if (p == null || p.eliminated) return;
+@@ -218,27 +218,38 @@
+         try {
+             Active a = active;
+             if (a == null || a.phase != Phase.RUNNING || a.type != ChainaEventType.FISHING) return;
+-            PokemonEntity entity = event.getPokemon();
+-            if (entity == null) return;
+-            Pokemon pokemon = entity.getPokemon();
+-            if (pokemon == null) return;
+-            net.minecraft.entity.Entity owner = event.getBobber().getOwner();
+-            if (!(owner instanceof ServerPlayerEntity player)) return;
++
++            // Cobblemon's published event jar is Mojmap while this project compiles against Yarn.
++            // Reflection here avoids linking inaccessible Mojmap entity superclasses, while still using
++            // the exact Post event payload (bobber + spawned PokemonEntity) at runtime.
++            Object entityObject = reflected(event, "getPokemon");
++            Object pokemonObject = reflected(entityObject, "getPokemon");
++            if (!(pokemonObject instanceof Pokemon pokemon)) return;
++            Object bobberObject = reflected(event, "getBobber");
++            Object ownerObject = reflected(bobberObject, "getOwner", "getPlayerOwner");
++            if (!(ownerObject instanceof ServerPlayerEntity player)) return;
+             Participant participant = a.participants.get(player.getUuid());
+             if (participant == null || participant.eliminated) return;
++
++            UUID entityId = reflectedUuid(entityObject);
+             String species = pokemon.getSpecies().showdownId().toLowerCase(Locale.ROOT);
+             long now = System.currentTimeMillis();
+             List<FishingEncounter> encounters = FISHING_ENCOUNTERS.computeIfAbsent(player.getUuid(), ignored -> new ArrayList<>());
+             encounters.removeIf(encounter -> now - encounter.createdAt() > FISHING_ENCOUNTER_TTL_MS);
+-            encounters.add(new FishingEncounter(pokemon.getUuid(), entity.getUuid(), species, now));
++            encounters.add(new FishingEncounter(pokemon.getUuid(), entityId, species, now));
+             while (encounters.size() > 12) encounters.remove(0);
+             Chainacobblemon.LOGGER.debug("Fishing encounter registered: player={} pokemon={} entity={} species={}",
+-                    player.getName().getString(), pokemon.getUuid(), entity.getUuid(), species);
++                    player.getName().getString(), pokemon.getUuid(), entityId, species);
+         } catch (RuntimeException exception) {
+             Chainacobblemon.LOGGER.warn("Could not register Cobblemon fishing encounter: {}", exception.toString());
+         }
+     }
+ 
++    private static UUID reflectedUuid(Object entity) {
++        Object value = reflected(entity, "getUuid", "getUUID");
++        return value instanceof UUID uuid ? uuid : null;
++    }
++
+     private static boolean consumeFishingEncounter(ServerPlayerEntity player, Pokemon pokemon) {
+         List<FishingEncounter> encounters = FISHING_ENCOUNTERS.get(player.getUuid());
+         if (encounters == null || encounters.isEmpty()) return false;
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+@@ -6,7 +6,6 @@
+ import com.andrewbristowx.chainacobblemon.events.ChainaEventType;
+ import com.andrewbristowx.chainacobblemon.npc.ServiceNpcEntity;
+ import com.andrewbristowx.chainacobblemon.registry.ModRegistries;
+-import com.cobblemon.mod.common.entity.pokemon.PokemonEntity;
+ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+ import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+ import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+@@ -334,9 +333,10 @@
+         try {
+             preloadChunks(world, p, stars);
+             String cmd = "place structure " + id + " " + p.getX() + " " + p.getY() + " " + p.getZ();
+-            int result = server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd);
+-            if (result <= 0) Chainacobblemon.LOGGER.warn("Treasure Hunt /place returned {} for {} at {}", result, id, p.toShortString());
+-            return result;
++            // Yarn 1.21.1 exposes executeWithPrefix as void. The authoritative success proof is the
++            // post-placement layout scan below: if no real walkable structure is found, start() rejects it.
++            server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd);
++            return 1;
+         } catch (Exception e) {
+             Chainacobblemon.LOGGER.warn("Treasure Hunt could not place {}: {}", id, e.toString());
+             return 0;
+@@ -589,8 +589,8 @@
+         trainers.addAll(world.getEntitiesByType(ModRegistries.CUSTOM_SLIM_NPC, npc -> structureKey().equals(npc.dungeonStructureKey())));
+         for (ServiceNpcEntity npc : trainers) {
+             Box nearby = npc.getBoundingBox().expand(24.0D, 12.0D, 24.0D);
+-            for (PokemonEntity pokemon : world.getEntitiesByClass(PokemonEntity.class, nearby, pe -> isOwnedByTrainer(pe, npc))) {
+-                pokemon.addCommandTag(BATTLE_POKEMON_TAG);
++            for (Entity entity : world.getOtherEntities(null, nearby, TreasureHuntService::isPokemonEntity)) {
++                if (isOwnedByTrainer(entity, npc)) entity.addCommandTag(BATTLE_POKEMON_TAG);
+             }
+         }
+     }
+@@ -599,18 +599,23 @@
+         if (player == null || npc == null || !(npc.getWorld() instanceof ServerWorld world)) return;
+         Box nearby = npc.getBoundingBox().expand(28.0D, 14.0D, 28.0D);
+         int removed = 0;
+-        for (PokemonEntity pokemon : world.getEntitiesByClass(PokemonEntity.class, nearby,
+-                pe -> pe.getCommandTags().contains(BATTLE_POKEMON_TAG) || isOwnedByTrainer(pe, npc))) {
+-            if (!pokemon.isRemoved()) { pokemon.discard(); removed++; }
++        for (Entity entity : world.getOtherEntities(null, nearby, e -> isPokemonEntity(e)
++                && (e.getCommandTags().contains(BATTLE_POKEMON_TAG) || isOwnedByTrainer(e, npc)))) {
++            if (!entity.isRemoved()) { entity.discard(); removed++; }
+         }
+         if (removed > 0) Chainacobblemon.LOGGER.debug("Treasure cleanup discarded {} temporary trainer Pokemon for {}", removed, npc.npcId());
+     }
+ 
+-    private static boolean isOwnedByTrainer(PokemonEntity pokemon, ServiceNpcEntity npc) {
++    private static boolean isPokemonEntity(Entity entity) {
++        return entity != null && entity.getClass().getName().equals("com.cobblemon.mod.common.entity.pokemon.PokemonEntity");
++    }
++
++    private static boolean isOwnedByTrainer(Entity entity, ServiceNpcEntity npc) {
+         try {
+-            UUID owner = pokemon.getPokemon().getOwnerUUID();
+-            return owner != null && owner.equals(npc.getUuid());
+-        } catch (RuntimeException ignored) {
++            Object pokemon = entity.getClass().getMethod("getPokemon").invoke(entity);
++            Object owner = pokemon == null ? null : pokemon.getClass().getMethod("getOwnerUUID").invoke(pokemon);
++            return owner instanceof UUID uuid && uuid.equals(npc.getUuid());
++        } catch (ReflectiveOperationException | RuntimeException ignored) {
+             return false;
+         }
+     }
