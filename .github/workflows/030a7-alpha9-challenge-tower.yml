@@ -1,0 +1,103 @@
+name: Build Chainacobblemon 0.3.0-alpha.9 Challenge Tower
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.9
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.8 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9272930858/zip' \
+            -o /tmp/alpha8-artifact.zip
+          mkdir -p /tmp/alpha8-artifact /tmp/chainacobblemon
+          unzip -q /tmp/alpha8-artifact.zip -d /tmp/alpha8-artifact
+          srczip="$(find /tmp/alpha8-artifact -name 'Chainacobblemon-0.3.0-alpha.8-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+
+      - name: Apply Challenge Tower alpha.9 overlay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/alpha9/overlay.part* | tr -d '\r\n' | base64 -d | tar -xzf - -C /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.9+1.21.1' /tmp/chainacobblemon/gradle.properties
+          test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.java
+          test -f /tmp/chainacobblemon/src/main/resources/data/chainacobblemon/dimension/challenge_tower.json
+
+      - name: Add Badge Rush final-battle music
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://cdn1.suno.ai/d4763662-924b-47e0-8395-c12e7f8795ce.mp3' \
+            -o /tmp/badge-rush.mp3
+          echo 'dda560ef5eea8a44a80aefd64a5808a008342334db24627983afcc4c20388609  /tmp/badge-rush.mp3' | sha256sum -c -
+          ffmpeg -version >/dev/null
+          mkdir -p /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/sounds/tower
+          ffmpeg -y -hide_banner -loglevel error \
+            -i /tmp/badge-rush.mp3 -vn -ac 1 -ar 44100 -c:a libvorbis -q:a 3 \
+            /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/sounds/tower/badge_rush.ogg
+          test -s /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/sounds/tower/badge_rush.ogg
+
+      - name: Compile Chainacobblemon alpha.9
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon --stacktrace
+
+      - name: Verify alpha.9 Challenge Tower jar
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=/tmp/chainacobblemon
+          jar="$(find "$src/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$jar"
+          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.9+1.21.1'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/tower/ChallengeTowerCommands.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/tower/TowerProgress.class'
+          unzip -l "$jar" | grep -q 'data/chainacobblemon/dimension/challenge_tower.json'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/sounds.json'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/sounds/tower/badge_rush.ogg'
+          unzip -l "$jar" | grep -q 'com/emiprotecciones/EmiProtecciones.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/cobbleeventalerts/CobbleEventAlerts.class'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/textures/item/gacha_ticket.png'
+          mkdir -p /tmp/release
+          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.9+1.21.1.jar'
+          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.9-source.zip' . -x '.gradle/*' 'build/*')
+          sha256sum \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.9+1.21.1.jar \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.9-source.zip \
+            > /tmp/release/SHA256SUMS-0.3.0-alpha.9.txt
+          cat /tmp/release/SHA256SUMS-0.3.0-alpha.9.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.9
+          path: /tmp/release/*
