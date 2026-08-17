@@ -55,7 +55,10 @@ jobs:
             'https://cdn1.suno.ai/d4763662-924b-47e0-8395-c12e7f8795ce.mp3' \
             -o /tmp/badge-rush.mp3
           echo 'dda560ef5eea8a44a80aefd64a5808a008342334db24627983afcc4c20388609  /tmp/badge-rush.mp3' | sha256sum -c -
-          ffmpeg -version >/dev/null
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
           mkdir -p /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/sounds/tower
           ffmpeg -y -hide_banner -loglevel error \
             -i /tmp/badge-rush.mp3 -vn -ac 1 -ar 44100 -c:a libvorbis -q:a 3 \
