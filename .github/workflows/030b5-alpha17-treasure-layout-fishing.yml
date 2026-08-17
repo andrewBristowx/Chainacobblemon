@@ -47,10 +47,14 @@ jobs:
           base64 -d /tmp/alpha17-overlay.b64 > /tmp/alpha17-overlay.tar.gz
           echo 'fc6777953aac7d097880b31480a4ddc017e8c1af626d0010eb5389e42624978b  /tmp/alpha17-overlay.tar.gz' | sha256sum -c -
           tar -xzf /tmp/alpha17-overlay.tar.gz -C /tmp/chainacobblemon
-          grep -q 'mod_version=0.3.0-alpha.17+1.21.1' /tmp/chainacobblemon/gradle.properties
-          grep -q 'detectLayout' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
-          grep -q 'FISHING_ENCOUNTERS' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
-          ! grep -q 'FISHED_POKEMON' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/alpha17/compile-fix.patch"
+          grep -q 'mod_version=0.3.0-alpha.17+1.21.1' gradle.properties
+          grep -q 'detectLayout' src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+          grep -q 'FISHING_ENCOUNTERS' src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+          grep -q 'reflectedUuid' src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+          ! grep -q 'FISHED_POKEMON' src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+          ! grep -q 'import com.cobblemon.mod.common.entity.pokemon.PokemonEntity' src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
 
       - name: Compile Chainacobblemon alpha.17
         working-directory: /tmp/chainacobblemon
@@ -80,10 +84,10 @@ jobs:
           grep -q 'detectLayout' /tmp/treasure17.javap
           grep -q 'debugSummary' /tmp/treasure17.javap
           grep -q 'cleanupTrainerPokemon' /tmp/treasure17.javap
-          grep -q 'event.getPokemon()' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
-          grep -q 'event.getPlayer()' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
+          grep -q 'isPokemonEntity' /tmp/treasure17.javap
+          grep -q 'reflected(event, "getPokemon")' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/ChainaEventManager.java
           grep -q 'averageTopThree' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.java
-          grep -q 'treasure debug' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/EventCommands.java || true
+          grep -q 'cleanupTrainerPokemon' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
 
       - name: Package source and checksums
         shell: bash
