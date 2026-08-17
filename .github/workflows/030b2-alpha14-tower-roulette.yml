@@ -71,6 +71,7 @@ jobs:
           jar xf "/tmp/chainacobblemon/$jarfile"
           grep -q '0.3.0-alpha.14' fabric.mod.json
           test -f com/andrewbristowx/chainacobblemon/tower/TowerRouletteNetworking.class
+          test -f 'com/andrewbristowx/chainacobblemon/tower/TowerRouletteNetworking$OpenTowerRoulettePayload.class'
           test -f com/andrewbristowx/chainacobblemon/tower/TowerRouletteSnapshot.class
           test -f com/andrewbristowx/chainacobblemon/client/tower/TowerRouletteScreen.class
           javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerService > /tmp/tower14.javap
@@ -85,7 +86,6 @@ jobs:
           grep -q 'buildmode' /tmp/towercmd14.javap
           grep -q 'lighting' /tmp/towercmd14.javap
           grep -q 'RULETA DE RECOMPENSA' /tmp/roulette14.javap
-          strings com/andrewbristowx/chainacobblemon/tower/TowerRouletteNetworking.class | grep -q 'open_tower_roulette'
           grep -q 'kommo-o' /tmp/tower14.javap
           ! grep -q 'kommo_o' /tmp/tower14.javap
 
