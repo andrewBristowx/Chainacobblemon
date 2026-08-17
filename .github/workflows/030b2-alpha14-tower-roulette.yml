@@ -76,7 +76,6 @@ jobs:
           javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerService > /tmp/tower14.javap
           javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerCommands > /tmp/towercmd14.javap
           javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.client.tower.TowerRouletteScreen > /tmp/roulette14.javap
-          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.tower.TowerRouletteNetworking > /tmp/roulettenet14.javap
           grep -q 'JACKPOT' /tmp/tower14.javap
           grep -q 'forceRoulette' /tmp/tower14.javap
           grep -q 'toggleBuildMode' /tmp/tower14.javap
@@ -86,7 +85,7 @@ jobs:
           grep -q 'buildmode' /tmp/towercmd14.javap
           grep -q 'lighting' /tmp/towercmd14.javap
           grep -q 'RULETA DE RECOMPENSA' /tmp/roulette14.javap
-          grep -q 'open_tower_roulette' /tmp/roulettenet14.javap
+          strings com/andrewbristowx/chainacobblemon/tower/TowerRouletteNetworking.class | grep -q 'open_tower_roulette'
           grep -q 'kommo-o' /tmp/tower14.javap
           ! grep -q 'kommo_o' /tmp/tower14.javap
 
