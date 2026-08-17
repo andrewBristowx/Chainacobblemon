@@ -43,6 +43,7 @@ jobs:
         run: |
           set -euxo pipefail
           cat ci/alpha9/overlay.part* | tr -d '\r\n' | base64 -d | tar -xzf - -C /tmp/chainacobblemon
+          python ci/alpha9/fix_compile.py
           grep -q 'mod_version=0.3.0-alpha.9+1.21.1' /tmp/chainacobblemon/gradle.properties
           test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.java
           test -f /tmp/chainacobblemon/src/main/resources/data/chainacobblemon/dimension/challenge_tower.json
