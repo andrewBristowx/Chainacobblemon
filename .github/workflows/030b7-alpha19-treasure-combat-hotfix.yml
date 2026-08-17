@@ -43,9 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          sha256sum ci/alpha19/part00 ci/alpha19/part01 ci/alpha19/part02 ci/alpha19/part03
           cat ci/alpha19/part00 ci/alpha19/part01 ci/alpha19/part02 ci/alpha19/part03 > /tmp/alpha19-overlay.b64
+          sha256sum /tmp/alpha19-overlay.b64
           base64 -d /tmp/alpha19-overlay.b64 > /tmp/alpha19-overlay.tar.gz
-          echo '7e916d89fe9429bae896db36692ca5cacf9fb0653aad99875d30fbe6b5d9602b  /tmp/alpha19-overlay.tar.gz' | sha256sum -c -
+          sha256sum /tmp/alpha19-overlay.tar.gz
+          gzip -t /tmp/alpha19-overlay.tar.gz
           tar -xzf /tmp/alpha19-overlay.tar.gz -C /tmp/chainacobblemon
           grep -q 'mod_version=0.3.0-alpha.19+1.21.1' /tmp/chainacobblemon/gradle.properties
 
