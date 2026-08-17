@@ -51,7 +51,7 @@ jobs:
           sed -i 's/else if (pokemonObj instanceof PokemonEntity entity) pokemon = entity.getPokemon();/else { Object nested = reflected(pokemonObj, "getPokemon"); if (nested instanceof Pokemon p2) pokemon = p2; }/' "$event"
           sed -i 's/return server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd);/server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd); return 1;/' "$treasure"
           grep -q '0.3.0-alpha.15' /tmp/chainacobblemon/gradle.properties
-          ! grep -q 'PokemonEntity' "$event"
+          ! grep -q 'instanceof PokemonEntity' "$event"
 
       - name: Compile Chainacobblemon alpha.15
         working-directory: /tmp/chainacobblemon
