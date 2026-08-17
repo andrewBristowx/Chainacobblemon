@@ -47,7 +47,6 @@ jobs:
           gzip -dc /tmp/apply_alpha13.py.gz > /tmp/apply_alpha13.py
           cd /tmp/chainacobblemon
           python3 /tmp/apply_alpha13.py
-          grep -RIl '0.3.0-alpha.12' . --exclude-dir=.gradle --exclude-dir=build | xargs -r sed -i 's/0.3.0-alpha.12/0.3.0-alpha.13/g'
 
       - name: Compile Chainacobblemon alpha.13
         working-directory: /tmp/chainacobblemon
