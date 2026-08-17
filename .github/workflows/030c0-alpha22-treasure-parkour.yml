@@ -48,6 +48,9 @@ jobs:
           test "$(wc -c < /tmp/alpha22-source.b64)" -eq 17640
           base64 -d /tmp/alpha22-source.b64 | gzip -dc > "$target"
           echo '4be324d9bf650337bc75714e2ea679fad1921f43aa9fa4d1300819ac99fad1df  '"$target" | sha256sum -c -
+          # 1.21.1 maps NOTE_BLOCK_BASS as a RegistryEntry; use the raw SoundEvent already used by this class.
+          sed -i 's/SoundEvents.BLOCK_NOTE_BLOCK_BASS/SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME/' "$target"
+          grep -q 'SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME' "$target"
           sed -i 's/mod_version=0.3.0-alpha.21+1.21.1/mod_version=0.3.0-alpha.22+1.21.1/' /tmp/chainacobblemon/gradle.properties
           grep -q 'mod_version=0.3.0-alpha.22+1.21.1' /tmp/chainacobblemon/gradle.properties
 
@@ -81,6 +84,7 @@ jobs:
           grep -q 'ballFloor' "$src"
           grep -q 'case 1 -> 6' "$src"
           grep -q 'default -> 18' "$src"
+          ! grep -q 'SoundEvents.BLOCK_NOTE_BLOCK_BASS' "$src"
 
       - name: Package source and checksums
         shell: bash
