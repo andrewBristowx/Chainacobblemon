@@ -52,6 +52,15 @@ jobs:
           sed -i 's/return server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd);/server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), cmd); return 1;/' "$treasure"
           grep -q '0.3.0-alpha.15' /tmp/chainacobblemon/gradle.properties
           ! grep -q 'instanceof PokemonEntity' "$event"
+          grep -q 'FISHING' "$event"
+          grep -q 'SAFARI' "$event"
+          grep -q 'BEAUTY' "$event"
+          grep -q 'MINING' "$event"
+          grep -q 'TREASURE' "$event"
+          grep -q 'claimTreasure' "$event"
+          grep -q 'beautyMove' "$event"
+          grep -q 'spawnSpecific' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/EventCommands.java
+          grep -q 'Chaina Dungeon Loot' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/dungeon/ChainaDungeonLootService.java
 
       - name: Compile Chainacobblemon alpha.15
         working-directory: /tmp/chainacobblemon
@@ -76,20 +85,12 @@ jobs:
           test -f com/andrewbristowx/chainacobblemon/events/ChainaEventManager.class
           test -f com/andrewbristowx/chainacobblemon/events/EventCommands.class
           test -f com/andrewbristowx/chainacobblemon/events/EventRewardService.class
+          test -f com/andrewbristowx/chainacobblemon/events/EventNetworking.class
           test -f com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.class
           test -f com/andrewbristowx/chainacobblemon/dungeon/ChainaDungeonLootService.class
           test -f com/andrewbristowx/chainacobblemon/dungeon/TreasureStructureCatalog.class
           test -f com/andrewbristowx/chainacobblemon/client/events/EventClient.class
           test -f com/andrewbristowx/chainacobblemon/client/events/BeautyGameScreen.class
-          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.events.ChainaEventManager > /tmp/events15.javap
-          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.events.EventCommands > /tmp/eventcmd15.javap
-          javap -classpath "/tmp/chainacobblemon/$jarfile" -c -p com.andrewbristowx.chainacobblemon.dungeon.ChainaDungeonLootService > /tmp/dloot15.javap
-          grep -q 'Concurso de Pesca Chaina' /tmp/events15.javap
-          grep -q 'claimTreasure' /tmp/events15.javap
-          grep -q 'beautyMove' /tmp/events15.javap
-          grep -q 'treasure' /tmp/eventcmd15.javap
-          grep -q 'spawnSpecific' /tmp/eventcmd15.javap
-          grep -q 'Chaina Dungeon Loot' /tmp/dloot15.javap
 
       - name: Package source and checksums
         shell: bash
