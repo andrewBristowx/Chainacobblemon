@@ -39,14 +39,11 @@ jobs:
           test -n "$srczip"
           unzip -q "$srczip" -d /tmp/chainacobblemon
 
-      - name: Apply exact alpha.20 overlay
+      - name: Apply exact alpha.20 return fix
         shell: bash
         run: |
           set -euxo pipefail
-          cp ci/alpha20/part00 /tmp/alpha20-overlay.b64
-          base64 -d /tmp/alpha20-overlay.b64 > /tmp/alpha20-overlay.tar.gz
-          echo '09e3331034f89917025dfc32532803430a8bb4cd3803875a292b9fc384e090cb  /tmp/alpha20-overlay.tar.gz' | sha256sum -c -
-          tar -xzf /tmp/alpha20-overlay.tar.gz -C /tmp/chainacobblemon
+          python ci/alpha20/apply.py /tmp/chainacobblemon
           grep -q 'mod_version=0.3.0-alpha.20+1.21.1' /tmp/chainacobblemon/gradle.properties
 
       - name: Compile Chainacobblemon alpha.20
