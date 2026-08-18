@@ -1,0 +1,109 @@
+diff -ruN a11src_check/CHANGELOG.md a12work/CHANGELOG.md
+--- a11src_check/CHANGELOG.md	2026-08-18 20:45:59.000000000 +0000
++++ a12work/CHANGELOG.md	2026-08-18 22:11:52.895547013 +0000
+@@ -1,3 +1,8 @@
++# 0.4.0-alpha.12
++
++- Corrige el bootstrap real de LuckPerms 5.4.140 en Java 21: todas las llamadas reflectivas pasan por interfaces públicas de la API oficial en lugar de implementaciones internas package-private (`NodeMapImpl`).
++- Mantiene sin cambios TAB v2, Styled Chat, Twitch, stream bonuses y ChainaBridge 0.4.0-alpha.7.
++
+ # 0.4.0-alpha.11
+ 
+ - TAB Chaina v2: elimina el recordatorio duplicado de vincular Twitch, añade una cabecera/footer más decorados y usa nombres con rango coloreado.
+diff -ruN a11src_check/gradle.properties a12work/gradle.properties
+--- a11src_check/gradle.properties	2026-08-18 20:45:59.000000000 +0000
++++ a12work/gradle.properties	2026-08-18 22:11:52.895136790 +0000
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.11+1.21.1
++mod_version=0.4.0-alpha.12+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+diff -ruN a11src_check/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java a12work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+--- a11src_check/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 20:45:59.000000000 +0000
++++ a12work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 22:11:52.895380985 +0000
+@@ -65,7 +65,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.11+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.12+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+diff -ruN a11src_check/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java a12work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
+--- a11src_check/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java	2026-08-18 20:45:59.000000000 +0000
++++ a12work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java	2026-08-18 22:11:52.894211145 +0000
+@@ -96,11 +96,14 @@
+     private static CompletableFuture<?> ensureGroup(Object api, String rawName, String rawParent, List<String> permissions) throws Exception {
+         String name = normalizeGroup(rawName);
+         String parent = normalizeGroup(rawParent);
+-        Object groupManager = api.getClass().getMethod("getGroupManager").invoke(api);
+-        Method modifyGroup = groupManager.getClass().getMethod("modifyGroup", String.class, Consumer.class);
++        Class<?> luckPermsApi = Class.forName("net.luckperms.api.LuckPerms");
++        Object groupManager = luckPermsApi.getMethod("getGroupManager").invoke(api);
++        Class<?> groupManagerApi = Class.forName("net.luckperms.api.model.group.GroupManager");
++        Method modifyGroup = groupManagerApi.getMethod("modifyGroup", String.class, Consumer.class);
+         Consumer<Object> action = group -> {
+             try {
+-                Object data = group.getClass().getMethod("data").invoke(group);
++                Class<?> permissionHolderApi = Class.forName("net.luckperms.api.model.PermissionHolder");
++                Object data = permissionHolderApi.getMethod("data").invoke(group);
+                 if (!parent.isBlank() && !parent.equals(name)) {
+                     addNode(data, "net.luckperms.api.node.types.InheritanceNode", parent);
+                 }
+@@ -120,24 +123,31 @@
+     private static void addNode(Object data, String nodeClassName, String value) throws Exception {
+         Class<?> nodeClass = Class.forName(nodeClassName);
+         Object builder = nodeClass.getMethod("builder", String.class).invoke(null, value);
+-        Object node = builder.getClass().getMethod("build").invoke(builder);
+-        invokeCompatible(data, "add", node);
++        Class<?> nodeBuilderApi = Class.forName("net.luckperms.api.node.NodeBuilder");
++        Object node = nodeBuilderApi.getMethod("build").invoke(builder);
++        Class<?> nodeApi = Class.forName("net.luckperms.api.node.Node");
++        Class<?> nodeMapApi = Class.forName("net.luckperms.api.model.data.NodeMap");
++        nodeMapApi.getMethod("add", nodeApi).invoke(data, node);
+     }
+ 
+     private static Set<String> queryGroups(ServerPlayerEntity player) {
+         Object api = luckPerms;
+         if (api == null) return Set.of();
+         try {
+-            Object userManager = api.getClass().getMethod("getUserManager").invoke(api);
+-            Object user = userManager.getClass().getMethod("getUser", UUID.class).invoke(userManager, player.getUuid());
++            Class<?> luckPermsApi = Class.forName("net.luckperms.api.LuckPerms");
++            Object userManager = luckPermsApi.getMethod("getUserManager").invoke(api);
++            Class<?> userManagerApi = Class.forName("net.luckperms.api.model.user.UserManager");
++            Object user = userManagerApi.getMethod("getUser", UUID.class).invoke(userManager, player.getUuid());
+             if (user == null) return Set.of();
+             Class<?> queryOptions = Class.forName("net.luckperms.api.query.QueryOptions");
+             Object options = queryOptions.getMethod("nonContextual").invoke(null);
+-            Object inherited = invokeCompatible(user, "getInheritedGroups", options);
++            Class<?> permissionHolderApi = Class.forName("net.luckperms.api.model.PermissionHolder");
++            Object inherited = permissionHolderApi.getMethod("getInheritedGroups", queryOptions).invoke(user, options);
+             if (!(inherited instanceof Collection<?> collection)) return Set.of();
+             LinkedHashSet<String> names = new LinkedHashSet<>();
+             for (Object group : collection) {
+-                Object rawName = group.getClass().getMethod("getName").invoke(group);
++                Class<?> groupApi = Class.forName("net.luckperms.api.model.group.Group");
++                Object rawName = groupApi.getMethod("getName").invoke(group);
+                 if (rawName != null) names.add(rawName.toString().toLowerCase(Locale.ROOT));
+             }
+             return Collections.unmodifiableSet(names);
+@@ -152,14 +162,5 @@
+         return value.strip().toLowerCase(Locale.ROOT).replace(' ', '_');
+     }
+ 
+-    private static Object invokeCompatible(Object target, String name, Object argument) throws Exception {
+-        for (Method method : target.getClass().getMethods()) {
+-            if (!method.getName().equals(name) || method.getParameterCount() != 1) continue;
+-            if (!method.getParameterTypes()[0].isInstance(argument)) continue;
+-            return method.invoke(target, argument);
+-        }
+-        throw new NoSuchMethodException(target.getClass().getName() + "#" + name);
+-    }
+-
+     private record CachedGroups(long loadedAt, Set<String> groups) { }
+ }
