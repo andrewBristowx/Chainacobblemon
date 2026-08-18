@@ -1,0 +1,127 @@
++                Math.clamp(integer(json, "tier"), 0, 3), bool(json, "pending"),
++                bool(json, "vip"), bool(json, "moderator"), bool(json, "roles_known"),
++                longValue(json, "roles_observed_at")));
+     }
+ 
+     CompletableFuture<ChannelStatus> channelStatus() {
+@@ -136,8 +138,13 @@
+         try { return json.has(key) ? json.get(key).getAsInt() : 0; }
+         catch (RuntimeException ignored) { return 0; }
+     }
++    private static long longValue(JsonObject json, String key) {
++        try { return json.has(key) ? json.get(key).getAsLong() : 0L; }
++        catch (RuntimeException ignored) { return 0L; }
++    }
+ 
+     record LinkStart(String verificationUrl, String userCode, String requestId) { }
+-    record PlayerStatus(boolean linked, String twitchUserId, String twitchLogin, int tier, boolean pending) { }
++    record PlayerStatus(boolean linked, String twitchUserId, String twitchLogin, int tier, boolean pending,
++                        boolean vip, boolean moderator, boolean rolesKnown, long rolesObservedAt) { }
+     record ChannelStatus(boolean online, String broadcaster) { }
+ }
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchProfile.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchProfile.java
+@@ -11,6 +11,11 @@
+     public String twitchUserId = "";
+     public String twitchLogin = "";
+     public int tier;
++    /** Twitch role data is non-sensitive and is learned by ChainaBridge from chat badges. */
++    public boolean twitchVip;
++    public boolean twitchModerator;
++    public boolean twitchRolesKnown;
++    public long twitchRolesObservedAtEpochSeconds;
+     public long lastSyncEpochSeconds;
+ 
+     public TwitchProfile() { }
+@@ -30,7 +35,17 @@
+             twitchUserId = "";
+             twitchLogin = "";
+             tier = 0;
++            twitchVip = false;
++            twitchModerator = false;
++            twitchRolesKnown = false;
++            twitchRolesObservedAtEpochSeconds = 0L;
+         }
++        if (!twitchRolesKnown) {
++            twitchVip = false;
++            twitchModerator = false;
++            twitchRolesObservedAtEpochSeconds = 0L;
++        }
++        if (twitchRolesObservedAtEpochSeconds < 0L) twitchRolesObservedAtEpochSeconds = 0L;
+         if (lastSyncEpochSeconds < 0L) lastSyncEpochSeconds = 0L;
+     }
+ 
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java
+@@ -6,45 +6,61 @@
+ 
+ import java.lang.reflect.Method;
+ import java.util.LinkedHashSet;
++import java.util.Locale;
+ import java.util.Set;
++import java.util.UUID;
+ 
+ /** Optional LuckPerms rank overlay. Never changes the player's primary group. */
+ final class TwitchRankService {
+     private TwitchRankService() { }
+ 
+     static void sync(ServerPlayerEntity player, TwitchProfile profile, ChainacobblemonConfig.TwitchSettings settings) {
+-        if (player == null || profile == null) return;
++        if (player == null || profile == null || settings == null) return;
+         Set<String> managed = new LinkedHashSet<>();
+         add(managed, settings.linkedGroup);
+         add(managed, settings.tier1Group);
+         add(managed, settings.tier2Group);
+         add(managed, settings.tier3Group);
+-        String desired = desiredGroup(profile, settings);
++        add(managed, settings.vipTwitchGroup);
++        add(managed, settings.moderatorTwitchGroup);
++
++        Set<String> desired = desiredGroups(profile, settings);
+         try {
+             Class<?> provider = Class.forName("net.luckperms.api.LuckPermsProvider");
+             Object luckPerms = provider.getMethod("get").invoke(null);
+-            Object userManager = luckPerms.getClass().getMethod("getUserManager").invoke(luckPerms);
+-            Object user = userManager.getClass().getMethod("getUser", java.util.UUID.class).invoke(userManager, player.getUuid());
++            Class<?> luckPermsApi = Class.forName("net.luckperms.api.LuckPerms");
++            Object userManager = luckPermsApi.getMethod("getUserManager").invoke(luckPerms);
++            Class<?> userManagerApi = Class.forName("net.luckperms.api.model.user.UserManager");
++            Object user = userManagerApi.getMethod("getUser", UUID.class).invoke(userManager, player.getUuid());
+             if (user == null) return;
+-            Object data = user.getClass().getMethod("data").invoke(user);
++
++            Class<?> permissionHolderApi = Class.forName("net.luckperms.api.model.PermissionHolder");
++            Object data = permissionHolderApi.getMethod("data").invoke(user);
+             Class<?> inheritanceNode = Class.forName("net.luckperms.api.node.types.InheritanceNode");
+             Method builder = inheritanceNode.getMethod("builder", String.class);
++            Class<?> nodeBuilderApi = Class.forName("net.luckperms.api.node.NodeBuilder");
++            Class<?> nodeApi = Class.forName("net.luckperms.api.node.Node");
++            Class<?> nodeMapApi = Class.forName("net.luckperms.api.model.data.NodeMap");
++            Method remove = nodeMapApi.getMethod("remove", nodeApi);
++            Method addNode = nodeMapApi.getMethod("add", nodeApi);
++
+             for (String group : managed) {
+                 Object nodeBuilder = builder.invoke(null, group);
+-                Object node = nodeBuilder.getClass().getMethod("build").invoke(nodeBuilder);
+-                invokeCompatible(data, "remove", node);
++                Object node = nodeBuilderApi.getMethod("build").invoke(nodeBuilder);
++                remove.invoke(data, node);
+             }
+-            if (desired != null && !desired.isBlank()) {
+-                Object nodeBuilder = builder.invoke(null, desired);
+-                Object node = nodeBuilder.getClass().getMethod("build").invoke(nodeBuilder);
+-                invokeCompatible(data, "add", node);
++            for (String group : desired) {
++                Object nodeBuilder = builder.invoke(null, group);
++                Object node = nodeBuilderApi.getMethod("build").invoke(nodeBuilder);
++                addNode.invoke(data, node);
+             }
+-            invokeCompatible(userManager, "saveUser", user);
++            userManagerApi.getMethod("saveUser", Class.forName("net.luckperms.api.model.user.User")).invoke(userManager, user);
+             LuckPermsBootstrap.invalidate(player.getUuid());
+         } catch (ClassNotFoundException ignored) {
+-            // Singleplayer/default Fabric mode: the internal Twitch rank remains active without LuckPerms.
++            // Singleplayer/default Fabric mode: internal Twitch state remains active without LuckPerms.
+         } catch (Throwable exception) {
+-            Chainacobblemon.LOGGER.debug("Could not synchronize optional Twitch LuckPerms rank", exception);
++            Chainacobblemon.LOGGER.warn("Could not synchronize optional Twitch LuckPerms groups for {}",
