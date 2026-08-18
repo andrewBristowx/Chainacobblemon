@@ -113,9 +113,10 @@ jobs:
           grep -q '0.4.0-alpha.3' fabric.mod.json
           test -f com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class
           javap -p com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class > /tmp/twitchscreen-javap.txt
-          grep -q 'void applyBlur(float)' /tmp/twitchscreen-javap.txt
-          grep -q 'void renderBackground' /tmp/twitchscreen-javap.txt
-          grep -q 'void renderInGameBackground' /tmp/twitchscreen-javap.txt
+          # Production/remapped Fabric jars use intermediary names for Minecraft overrides.
+          grep -q 'method_57734(float)' /tmp/twitchscreen-javap.txt
+          grep -q 'method_25420' /tmp/twitchscreen-javap.txt
+          grep -q 'method_52752' /tmp/twitchscreen-javap.txt
 
       - name: Upload authoritative artifact
         uses: actions/upload-artifact@v4
