@@ -1,0 +1,150 @@
+package com.andrewbristowx.chainabridge;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.sun.net.httpserver.HttpExchange;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
+
+/**
+ * Twitch EventSub listener owned by ChainaMinecraftBot.
+ *
+ * The bot has only user:read:chat + user:bot. Access/refresh tokens are stored
+ * in a separate AES-256-GCM file using the same ChainaBridge master key.
+ * No broadcaster OAuth token is used. ChainaMinecraftBot must be a moderator
+ * in the configured broadcaster channel for the chat EventSub subscriptions.
+ */
+final class BotEventSubService {
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+    private static final String EXPECTED_BOT_LOGIN = "chainaminecraftbot";
+    private static final String SCOPE_READ_CHAT = "user:read:chat";
+    private static final String SCOPE_USER_BOT = "user:bot";
+    private static final String BOT_SCOPES = SCOPE_READ_CHAT + " " + SCOPE_USER_BOT;
+    private static final URI DEFAULT_EVENTSUB_WS = URI.create("wss://eventsub.wss.twitch.tv/ws");
+    private static final Path BOT_STORE_PATH = Path.of("chainabridge-bot.enc");
+    private static final byte[] BOT_STORE_AAD = "ChainaBridge-AES-GCM-bot-store-v1".getBytes(StandardCharsets.UTF_8);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private final HttpClient http;
+    private final ScheduledExecutorService scheduler;
+    private final byte[] storageKey;
+    private final Supplier<String> clientIdSupplier;
+    private final Supplier<String> broadcasterSupplier;
+    private final Supplier<Integer> portSupplier;
+    private final AtomicBoolean connectInProgress = new AtomicBoolean();
+    private final Set<String> seenMessageIds = ConcurrentHashMap.newKeySet();
+    private final AtomicLong bitsEvents = new AtomicLong();
+    private final AtomicLong subscriptionEvents = new AtomicLong();
+    private final AtomicLong giftEvents = new AtomicLong();
+
+    private volatile BotAccount account;
+    private volatile PendingBotLink pending;
+    private volatile WebSocket webSocket;
+    private volatile boolean socketConnected;
+    private volatile boolean subscriptionsReady;
+    private volatile String eventSubSessionId = "";
+    private volatile String lastStatus = "Bot no vinculado.";
+    private volatile String lastEvent = "Ningún evento recibido todavía.";
+    private volatile boolean stopping;
+
+    BotEventSubService(HttpClient http,
+                       ScheduledExecutorService scheduler,
+                       byte[] storageKey,
+                       Supplier<String> clientIdSupplier,
+                       Supplier<String> broadcasterSupplier,
+                       Supplier<Integer> portSupplier) {
+        this.http = http;
+        this.scheduler = scheduler;
+        this.storageKey = storageKey.clone();
+        this.clientIdSupplier = clientIdSupplier;
+        this.broadcasterSupplier = broadcasterSupplier;
+        this.portSupplier = portSupplier;
+        loadBotSafely();
+    }
+
+    void start() {
+        scheduler.scheduleWithFixedDelay(this::pollPendingSafely, 1, 1, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(this::maintainSafely, 55, 55, TimeUnit.MINUTES);
+        if (account != null) scheduler.schedule(this::connectEventSubSafely, 3, TimeUnit.SECONDS);
+    }
+
+    void stop() {
+        stopping = true;
+        WebSocket current = webSocket;
+        webSocket = null;
+        socketConnected = false;
+        subscriptionsReady = false;
+        if (current != null) {
+            try { current.sendClose(WebSocket.NORMAL_CLOSURE, "ChainaBridge stopping"); }
+            catch (Exception ignored) { current.abort(); }
+        }
+        saveBotSafely();
+    }
+
+    void onConfigChanged() {
+        subscriptionsReady = false;
+        eventSubSessionId = "";
+        WebSocket current = webSocket;
+        webSocket = null;
+        socketConnected = false;
+        if (current != null) current.abort();
+        if (account != null && !stopping) scheduler.schedule(this::connectEventSubSafely, 1, TimeUnit.SECONDS);
+    }
+
+    void selfTestEncryptedStore() throws Exception {
+        BotAccount expected = new BotAccount("bot-test-user", EXPECTED_BOT_LOGIN,
+                "BOT_ACCESS_TOKEN_MUST_NOT_APPEAR_PLAINTEXT", "BOT_REFRESH_TOKEN_MUST_NOT_APPEAR_PLAINTEXT",
+                System.currentTimeMillis() + 3_600_000L, System.currentTimeMillis());
+        account = expected;
+        saveBot();
+        String onDisk = Files.readString(BOT_STORE_PATH, StandardCharsets.UTF_8);
+        if (onDisk.contains("BOT_ACCESS_TOKEN_MUST_NOT_APPEAR_PLAINTEXT") || onDisk.contains("BOT_REFRESH_TOKEN_MUST_NOT_APPEAR_PLAINTEXT")) {
+            throw new IllegalStateException("encrypted bot store leaked plaintext token data");
+        }
+        account = null;
+        loadBotSafely();
+        if (!expected.equals(account)) throw new IllegalStateException("encrypted bot store round-trip mismatch");
+        System.out.println("CHAINABRIDGE_ENCRYPTED_BOT_STORE_SELF_TEST_OK");
+    }
+
+    boolean linked() { return account != null; }
+    boolean eventSubConnected() { return socketConnected && subscriptionsReady; }
+    String login() { return account == null ? "" : account.login(); }
+    long bitsEventCount() { return bitsEvents.get(); }
+    long subscriptionEventCount() { return subscriptionEvents.get(); }
+    long giftEventCount() { return giftEvents.get(); }
+    String lastEventSummary() { return lastEvent; }
+
