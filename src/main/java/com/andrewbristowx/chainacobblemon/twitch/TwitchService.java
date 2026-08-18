@@ -5,7 +5,11 @@ import com.andrewbristowx.chainacobblemon.config.ConfigManager;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.ClickEvent;
+import net.minecraft.text.HoverEvent;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -257,7 +261,16 @@ public final class TwitchService {
         channelOnline = online;
         if ((!changed && !forceAnnouncement) || server == null) return;
         if (online && settings().announceOnline) {
-            server.getPlayerManager().broadcast(Text.literal("§d§l🔴 CHAINA ESTA EN DIRECTO §r§f· twitch.tv/" + settings().broadcasterLogin), false);
+            String url = "https://twitch.tv/" + settings().broadcasterLogin;
+            MutableText prefix = Text.literal("● CHAINA ESTA EN DIRECTO · ")
+                    .formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD);
+            MutableText link = Text.literal("twitch.tv/" + settings().broadcasterLogin)
+                    .styled(style -> style
+                            .withColor(Formatting.AQUA)
+                            .withUnderline(true)
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, url))
+                            .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Clic para abrir el stream de Chaina"))));
+            server.getPlayerManager().broadcast(prefix.append(link), false);
         } else if (!online && settings().announceOffline) {
             server.getPlayerManager().broadcast(Text.literal("§5Chaina termino el directo. ¡Gracias por acompañarla!"), false);
         }
