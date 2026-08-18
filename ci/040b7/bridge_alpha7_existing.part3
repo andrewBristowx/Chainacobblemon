@@ -1,0 +1,93 @@
++                <p>Permisos solicitados al bot: <code>user:read:chat</code>, <code>user:write:chat</code> y <code>user:bot</code>.</p>
+                 <p>La cuenta <b>ChainaMinecraftBot</b> debe seguir siendo MOD de <b>@%s</b>.</p>
+                 <p><a class="btn" href="/setup">Volver a configuración</a></p>
+                 </body></html>
+-                """.formatted(html(broadcasterSupplier.get()), statusClass, accountText, html(eventSubText), html(lastStatus), action,
+-                bitsEvents.get(), subscriptionEvents.get(), giftEvents.get(), html(lastEvent), html(broadcasterSupplier.get()));
++                """.formatted(html(broadcasterSupplier.get()), statusClass, accountText, html(eventSubText),
++                current == null ? "No disponible" : (writePermissionReady ? "Lista" : "Falta reautorizar user:write:chat"), html(lastStatus), action,
++                bitsEvents.get(), subscriptionEvents.get(), giftEvents.get(), html(lastEvent), commandManager.commandCount(), commandManager.enabledCommandCount(), commandManager.autoMessageCount(), html(broadcasterSupplier.get()));
+         sendHtml(exchange, 200, page);
+     }
+ 
+@@ -220,6 +242,10 @@
+         json.addProperty("pending", pending != null);
+         json.addProperty("socket_connected", socketConnected);
+         json.addProperty("subscriptions_ready", subscriptionsReady);
++        json.addProperty("write_permission_ready", writePermissionReady);
++        json.addProperty("commands", commandManager.commandCount());
++        json.addProperty("enabled_commands", commandManager.enabledCommandCount());
++        json.addProperty("automessages", commandManager.autoMessageCount());
+         json.addProperty("message", lastStatus);
+         json.addProperty("last_event", lastEvent);
+         json.addProperty("bits_events", bitsEvents.get());
+@@ -237,6 +263,7 @@
+         pending = null;
+         BotAccount old = account;
+         account = null;
++        writePermissionReady = false;
+         lastStatus = "Bot desvinculado de ChainaBridge.";
+         subscriptionsReady = false;
+         socketConnected = false;
+@@ -288,10 +315,10 @@
+             TokenExchange token = exchangeDeviceToken(link);
+             if (token == null) return;
+             ValidatedUser user = validateToken(token.accessToken());
+-            if (!user.scopes().contains(SCOPE_READ_CHAT) || !user.scopes().contains(SCOPE_USER_BOT)) {
++            if (!user.scopes().contains(SCOPE_READ_CHAT) || !user.scopes().contains(SCOPE_WRITE_CHAT) || !user.scopes().contains(SCOPE_USER_BOT)) {
+                 pending = null;
+                 revokeToken(token.accessToken());
+-                lastStatus = "Twitch no concedió user:read:chat + user:bot. Vuelve a autorizar.";
++                lastStatus = "Twitch no concedió user:read:chat + user:write:chat + user:bot. Vuelve a autorizar.";
+                 return;
+             }
+             if (!EXPECTED_BOT_LOGIN.equalsIgnoreCase(user.login())) {
+@@ -304,6 +331,7 @@
+             BotAccount next = new BotAccount(user.userId(), user.login(), token.accessToken(), token.refreshToken(),
+                     now + token.expiresIn() * 1000L, now);
+             account = next;
++            writePermissionReady = true;
+             pending = null;
+             saveBot();
+             lastStatus = "@ChainaMinecraftBot vinculado. Conectando EventSub…";
+@@ -383,8 +411,9 @@
+     private BotAccount verifyBotIdentity(BotAccount current, ValidatedUser validated, long now) throws ReauthRequired {
+         if (!EXPECTED_BOT_LOGIN.equalsIgnoreCase(validated.login())) throw new ReauthRequired("La sesión ya no pertenece a ChainaMinecraftBot.");
+         if (!validated.scopes().contains(SCOPE_READ_CHAT) || !validated.scopes().contains(SCOPE_USER_BOT)) {
+-            throw new ReauthRequired("Faltan permisos del bot.");
++            throw new ReauthRequired("Faltan permisos de lectura del bot.");
+         }
++        writePermissionReady = validated.scopes().contains(SCOPE_WRITE_CHAT);
+         return new BotAccount(validated.userId(), validated.login(), current.accessToken(), current.refreshToken(), current.expiresAtMillis(), now);
+     }
+ 
+@@ -586,6 +615,7 @@
+     }
+ 
+     private void handleChatMessage(JsonObject event) {
++        commandManager.onChatMessage(event);
+         JsonObject cheer = event.has("cheer") && event.get("cheer").isJsonObject() ? event.getAsJsonObject("cheer") : null;
+         if (cheer == null) return;
+         int bits = integer(cheer, "bits", 0);
+@@ -638,6 +668,72 @@
+         }
+     }
+ 
++    private void validateBotPermissionsSafely() {
++        if (account == null) return;
++        try {
++            BotAccount current = account;
++            ValidatedUser validated = validateToken(current.accessToken());
++            BotAccount verified = verifyBotIdentity(current, validated, System.currentTimeMillis());
++            account = verified;
++            saveBotSafely();
++            if (!writePermissionReady) {
++                lastStatus = "EventSub puede seguir leyendo, pero falta user:write:chat. Pulsa Actualizar permisos para que el bot responda.";
++                System.out.println("[bot] Existing bot session needs reauthorization for user:write:chat.");
++            }
++        } catch (Exception error) {
++            System.err.println("[bot] Permission validation failed: " + safeError(error));
++        }
++    }
++
++    private void sendChatMessage(String message) throws Exception {
