@@ -1,0 +1,85 @@
+        saveAutoMessages();
+        redirect(exchange, "/bot/commands");
+    }
+
+    void handleDeleteAuto(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        String id = normalizeId(parseForm(readBody(exchange)).get("id"));
+        List<AutoMessageDef> next = new ArrayList<>(autoMessages);
+        next.removeIf(def -> def.id().equalsIgnoreCase(id));
+        autoMessages = List.copyOf(next);
+        autoLastSent.remove(id);
+        saveAutoMessages();
+        redirect(exchange, "/bot/commands");
+    }
+
+    void handleReload(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        loadAll(false);
+        redirect(exchange, "/bot/commands");
+    }
+
+    private String editCommandForm(CommandDef def) { return commandForm(def); }
+    private String editAutoForm(AutoMessageDef def) { return autoForm(def); }
+
+    private String commandForm(CommandDef def) {
+        String command = def == null ? "" : def.command();
+        String aliases = def == null ? "" : String.join(", ", def.aliases());
+        String response = def == null ? "" : def.response();
+        int cooldown = def == null ? 30 : def.cooldownSeconds();
+        String access = def == null ? "everyone" : def.access();
+        boolean enabled = def == null || def.enabled();
+        return "<form method='post' action='/bot/commands/save'><input type='hidden' name='original' value='" + html(command) + "'><div class='grid'>"
+                + "<label>Comando<input name='command' value='" + html(command) + "' placeholder='!server' required></label>"
+                + "<label>Alias separados por coma<input name='aliases' value='" + html(aliases) + "' placeholder='!servidor, !minecraft'></label>"
+                + "<label>Cooldown (segundos)<input type='number' min='0' max='3600' name='cooldown' value='" + cooldown + "'></label>"
+                + "<label>Acceso<select name='access'><option value='everyone'" + selected(access,"everyone") + ">Todos</option><option value='subs'" + selected(access,"subs") + ">Subs</option><option value='mods'" + selected(access,"mods") + ">Mods</option></select></label></div>"
+                + "<label><input style='width:auto' type='checkbox' name='enabled'" + (enabled ? " checked" : "") + "> Activo</label>"
+                + "<label>Respuesta<textarea name='response' required>" + html(response) + "</textarea></label><button type='submit'>Guardar</button></form>";
+    }
+
+    private String autoForm(AutoMessageDef def) {
+        String id = def == null ? "" : def.id();
+        String message = def == null ? "" : def.message();
+        int interval = def == null ? 30 : def.intervalMinutes();
+        int recent = def == null ? 10 : def.requireRecentChatMinutes();
+        boolean enabled = def == null || def.enabled();
+        boolean onlyLive = def == null || def.onlyWhenLive();
+        return "<form method='post' action='/bot/automessages/save'><input type='hidden' name='original' value='" + html(id) + "'><div class='grid'>"
+                + "<label>ID<input name='id' value='" + html(id) + "' placeholder='recordatorio_vincular' required></label>"
+                + "<label>Intervalo (minutos)<input type='number' min='1' max='1440' name='interval' value='" + interval + "'></label>"
+                + "<label>Actividad reciente máxima (min, 0=ignorar)<input type='number' min='0' max='1440' name='recent' value='" + recent + "'></label></div>"
+                + "<label><input style='width:auto' type='checkbox' name='enabled'" + (enabled ? " checked" : "") + "> Activo</label> "
+                + "<label><input style='width:auto' type='checkbox' name='only_live'" + (onlyLive ? " checked" : "") + "> Solo cuando Chaina esté en directo</label>"
+                + "<label>Mensaje<textarea name='message' required>" + html(message) + "</textarea></label><button type='submit'>Guardar</button></form>";
+    }
+
+    private static String deleteForm(String action, String field, String value) {
+        return "<form method='post' action='" + action + "' style='display:inline'><input type='hidden' name='" + field + "' value='" + html(value) + "'><button class='danger' type='submit'>Eliminar</button></form>";
+    }
+
+    private void loadOrCreateAll() {
+        try {
+            if (!Files.exists(COMMANDS_PATH)) writeDefaultCommands();
+            if (!Files.exists(AUTO_PATH)) writeDefaultAutoMessages();
+            loadAll(false);
+        } catch (Exception error) {
+            System.err.println("[bot-config] initial load failed: " + safeError(error));
+        }
+    }
+
+    private synchronized void loadAll(boolean onlyIfChanged) {
+        try {
+            long cm = mtime(COMMANDS_PATH);
+            if (!onlyIfChanged || cm != commandsMtime) loadCommands();
+        } catch (Exception error) { System.err.println("[bot-config] commands reload failed; keeping previous config: " + safeError(error)); }
+        try {
+            long am = mtime(AUTO_PATH);
+            if (!onlyIfChanged || am != autoMtime) loadAutoMessages();
+        } catch (Exception error) { System.err.println("[bot-config] automessages reload failed; keeping previous config: " + safeError(error)); }
+    }
+
+    private void reloadIfChangedSafely() { loadAll(true); }
+
+    private synchronized void loadCommands() throws IOException {
+        JsonObject root = GSON.fromJson(Files.readString(COMMANDS_PATH, StandardCharsets.UTF_8), JsonObject.class);
