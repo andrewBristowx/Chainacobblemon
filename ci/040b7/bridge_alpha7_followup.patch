@@ -1,0 +1,43 @@
+--- a/src/main/java/com/andrewbristowx/chainabridge/BotCommandManager.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/BotCommandManager.java
+@@ -171,18 +171,11 @@
+                 long recentMillis = def.requireRecentChatMinutes() * 60_000L;
+                 if (lastHumanChatMillis <= 0 || now - lastHumanChatMillis > recentMillis) continue;
+             }
+-            if (def.onlyWhenLive()) {
+-                try {
+-                    if (!liveChecker.isLive()) continue;
+-                } catch (Exception error) {
+-                    System.err.println("[bot-auto] live check failed: " + safeError(error));
+-                    continue;
+-                }
+-            }
+             autoLastSent.put(def.id(), now);
+             String message = expand(def.message(), "", "");
+             Thread.startVirtualThread(() -> {
+                 try {
++                    if (def.onlyWhenLive() && !liveChecker.isLive()) return;
+                     sender.send(message);
+                     lastAutoEvent = def.id() + " enviado · " + Instant.now();
+                     System.out.println("[bot-auto] " + def.id() + " -> " + message);
+--- a/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
+@@ -328,12 +328,18 @@
+                 System.err.println("[bot] Rejected OAuth from @" + user.login() + "; expected @ChainaMinecraftBot.");
+                 return;
+             }
++            BotAccount previous = account;
+             BotAccount next = new BotAccount(user.userId(), user.login(), token.accessToken(), token.refreshToken(),
+                     now + token.expiresIn() * 1000L, now);
+             account = next;
+             writePermissionReady = true;
+             pending = null;
+             saveBot();
++            closeSocket();
++            if (previous != null && !previous.accessToken().equals(next.accessToken())) {
++                try { revokeToken(previous.accessToken()); }
++                catch (Exception error) { System.err.println("[bot] Could not revoke replaced bot token: " + safeError(error)); }
++            }
+             lastStatus = "@ChainaMinecraftBot vinculado. Conectando EventSub…";
+             System.out.println("[bot] @ChainaMinecraftBot linked (encrypted session saved). Starting EventSub for @" + broadcasterSupplier.get() + ".");
+             scheduler.schedule(this::connectEventSubSafely, 1, TimeUnit.SECONDS);
