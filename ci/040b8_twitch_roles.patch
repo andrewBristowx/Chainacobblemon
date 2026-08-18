@@ -1,0 +1,310 @@
+--- a/build.gradle
++++ b/build.gradle
+@@ -4,7 +4,7 @@
+ }
+ 
+ group = 'com.andrewbristowx.chainabridge'
+-version = '0.4.0-alpha.7'
++version = '0.4.0-alpha.8'
+ 
+ repositories {
+     mavenCentral()
+@@ -26,7 +26,7 @@
+ 
+ tasks.named('jar') {
+     archiveBaseName = 'ChainaBridge'
+-    archiveVersion = '0.4.0-alpha.7'
++    archiveVersion = '0.4.0-alpha.8'
+     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+     manifest {
+         attributes 'Main-Class': application.mainClass.get()
+--- a/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
+@@ -56,6 +56,10 @@
+     private static final String BOT_SCOPES = SCOPE_READ_CHAT + " " + SCOPE_WRITE_CHAT + " " + SCOPE_USER_BOT;
+     private static final URI DEFAULT_EVENTSUB_WS = URI.create("wss://eventsub.wss.twitch.tv/ws");
+     private static final Path BOT_STORE_PATH = Path.of("chainabridge-bot.enc");
++    /** Non-sensitive Twitch role observations learned from authoritative chat-message badges. */
++    private static final Path ROLE_STORE_PATH = Path.of("chainabridge-role-observations.json");
++    /** A role observation expires if the user has not spoken in Chaina chat for seven days. */
++    private static final long ROLE_OBSERVATION_TTL_SECONDS = 7L * 24L * 60L * 60L;
+     private static final byte[] BOT_STORE_AAD = "ChainaBridge-AES-GCM-bot-store-v1".getBytes(StandardCharsets.UTF_8);
+     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+ 
+@@ -70,6 +74,7 @@
+     private final AtomicLong bitsEvents = new AtomicLong();
+     private final AtomicLong subscriptionEvents = new AtomicLong();
+     private final AtomicLong giftEvents = new AtomicLong();
++    private final ConcurrentHashMap<String, RoleObservation> roleObservations = new ConcurrentHashMap<>();
+     private final BotCommandManager commandManager;
+ 
+     private volatile BotAccount account;
+@@ -96,12 +101,14 @@
+         this.broadcasterSupplier = broadcasterSupplier;
+         this.portSupplier = portSupplier;
+         loadBotSafely();
++        loadRoleObservationsSafely();
+         this.commandManager = new BotCommandManager(scheduler, this::sendChatMessage, this::isBroadcasterOnlineWithBot, broadcasterSupplier, () -> writePermissionReady);
+     }
+ 
+     void start() {
+         scheduler.scheduleWithFixedDelay(this::pollPendingSafely, 1, 1, TimeUnit.SECONDS);
+         scheduler.scheduleWithFixedDelay(this::maintainSafely, 55, 55, TimeUnit.MINUTES);
++        scheduler.scheduleWithFixedDelay(this::saveRoleObservationsSafely, 5, 5, TimeUnit.MINUTES);
+         commandManager.start();
+         if (account != null) {
+             scheduler.schedule(this::validateBotPermissionsSafely, 1, TimeUnit.SECONDS);
+@@ -120,6 +127,7 @@
+             catch (Exception ignored) { current.abort(); }
+         }
+         saveBotSafely();
++        saveRoleObservationsSafely();
+     }
+ 
+     void onConfigChanged() {
+@@ -621,6 +629,7 @@
+     }
+ 
+     private void handleChatMessage(JsonObject event) {
++        observeChatRoles(event);
+         commandManager.onChatMessage(event);
+         JsonObject cheer = event.has("cheer") && event.get("cheer").isJsonObject() ? event.getAsJsonObject("cheer") : null;
+         if (cheer == null) return;
+@@ -632,6 +641,58 @@
+         bitsEvents.incrementAndGet();
+         lastEvent = "BITS: @" + user + " -> " + bits + " Bits";
+         System.out.println("[eventsub][BITS] @" + user + " -> " + bits + " Bits" + (text.isBlank() ? "" : " | " + text));
++    }
++
++    /**
++     * Learns Twitch VIP/MOD status only from badges attached by Twitch to a real chat message.
++     * We intentionally do not request a broadcaster token. A negative observation is retained
++     * only for a user previously known as VIP/MOD so revocations are applied after their next message.
++     */
++    private void observeChatRoles(JsonObject event) {
++        String userId = string(event, "chatter_user_id");
++        if (userId.isBlank()) return;
++        String login = string(event, "chatter_user_login").toLowerCase(Locale.ROOT);
++        boolean vip = false;
++        boolean moderator = false;
++        JsonArray badges = event != null && event.has("badges") && event.get("badges").isJsonArray()
++                ? event.getAsJsonArray("badges") : new JsonArray();
++        for (JsonElement element : badges) {
++            if (!element.isJsonObject()) continue;
++            String setId = string(element.getAsJsonObject(), "set_id").toLowerCase(Locale.ROOT);
++            if ("vip".equals(setId)) vip = true;
++            if ("moderator".equals(setId) || "broadcaster".equals(setId)) moderator = true;
++        }
++
++        long now = System.currentTimeMillis() / 1000L;
++        RoleObservation previous = roleObservations.get(userId);
++        // Avoid growing this store with every normal chatter. We only track role holders and
++        // users whose previously-observed role needs to be explicitly cleared.
++        if (!vip && !moderator && previous == null) return;
++        RoleObservation next = new RoleObservation(vip, moderator, now, login);
++        roleObservations.put(userId, next);
++        if (previous == null || previous.vip() != vip || previous.moderator() != moderator) {
++            System.out.println("[eventsub][ROLE] @" + (login.isBlank() ? userId : login)
++                    + " -> VIP=" + vip + " MOD=" + moderator);
++            saveRoleObservationsSafely();
++        }
++    }
++
++    RoleObservation roleFor(String twitchUserId) {
++        if (twitchUserId == null || twitchUserId.isBlank()) return RoleObservation.unknown();
++        RoleObservation value = roleObservations.get(twitchUserId);
++        if (value == null) return RoleObservation.unknown();
++        long now = System.currentTimeMillis() / 1000L;
++        if (value.observedAtEpochSeconds() <= 0L || now - value.observedAtEpochSeconds() > ROLE_OBSERVATION_TTL_SECONDS) {
++            roleObservations.remove(twitchUserId, value);
++            return RoleObservation.unknown();
++        }
++        return value;
++    }
++
++    int knownRoleObservationCount() {
++        long now = System.currentTimeMillis() / 1000L;
++        roleObservations.entrySet().removeIf(entry -> now - entry.getValue().observedAtEpochSeconds() > ROLE_OBSERVATION_TTL_SECONDS);
++        return roleObservations.size();
+     }
+ 
+     private void handleChatNotification(JsonObject event) {
+@@ -818,6 +879,88 @@
+         }
+     }
+ 
++    private void loadRoleObservationsSafely() {
++        roleObservations.clear();
++        if (!Files.isRegularFile(ROLE_STORE_PATH)) return;
++        try {
++            JsonObject root = object(Files.readString(ROLE_STORE_PATH, StandardCharsets.UTF_8));
++            JsonArray entries = root.has("roles") && root.get("roles").isJsonArray() ? root.getAsJsonArray("roles") : new JsonArray();
++            long now = System.currentTimeMillis() / 1000L;
++            for (JsonElement element : entries) {
++                if (!element.isJsonObject()) continue;
++                JsonObject row = element.getAsJsonObject();
++                String userId = string(row, "twitch_user_id");
++                if (userId.isBlank()) continue;
++                long observedAt = longValue(row, "observed_at", 0L);
++                if (observedAt <= 0L || now - observedAt > ROLE_OBSERVATION_TTL_SECONDS) continue;
++                roleObservations.put(userId, new RoleObservation(
++                        bool(row, "vip"), bool(row, "moderator"), observedAt, string(row, "twitch_login")));
++            }
++            if (!roleObservations.isEmpty()) {
++                System.out.println("[bot-role] Restored " + roleObservations.size() + " recent VIP/MOD observation(s).");
++            }
++        } catch (Exception error) {
++            System.err.println("[bot-role] Could not load role observations: " + safeError(error));
++            roleObservations.clear();
++        }
++    }
++
++    private void saveRoleObservationsSafely() {
++        try { saveRoleObservations(); }
++        catch (Exception error) { System.err.println("[bot-role] Could not persist role observations: " + safeError(error)); }
++    }
++
++    private void saveRoleObservations() throws IOException {
++        long now = System.currentTimeMillis() / 1000L;
++        roleObservations.entrySet().removeIf(entry -> now - entry.getValue().observedAtEpochSeconds() > ROLE_OBSERVATION_TTL_SECONDS);
++        JsonObject root = new JsonObject();
++        root.addProperty("version", 1);
++        root.addProperty("ttl_hours", ROLE_OBSERVATION_TTL_SECONDS / 3600L);
++        JsonArray rows = new JsonArray();
++        roleObservations.forEach((userId, value) -> {
++            JsonObject row = new JsonObject();
++            row.addProperty("twitch_user_id", userId);
++            row.addProperty("twitch_login", value.login());
++            row.addProperty("vip", value.vip());
++            row.addProperty("moderator", value.moderator());
++            row.addProperty("observed_at", value.observedAtEpochSeconds());
++            rows.add(row);
++        });
++        root.add("roles", rows);
++        Path temp = Path.of(ROLE_STORE_PATH + ".tmp");
++        Files.writeString(temp, GSON.toJson(root), StandardCharsets.UTF_8);
++        try { Files.move(temp, ROLE_STORE_PATH, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
++        catch (java.nio.file.AtomicMoveNotSupportedException unsupported) { Files.move(temp, ROLE_STORE_PATH, StandardCopyOption.REPLACE_EXISTING); }
++    }
++
++    void selfTestRoleObservations() throws Exception {
++        roleObservations.clear();
++        JsonObject event = new JsonObject();
++        event.addProperty("chatter_user_id", "role-test-user");
++        event.addProperty("chatter_user_login", "role_test");
++        JsonArray badges = new JsonArray();
++        JsonObject vip = new JsonObject(); vip.addProperty("set_id", "vip"); badges.add(vip);
++        event.add("badges", badges);
++        observeChatRoles(event);
++        RoleObservation first = roleFor("role-test-user");
++        if (!first.known() || !first.vip() || first.moderator()) throw new IllegalStateException("VIP role observation failed");
++
++        JsonArray modBadges = new JsonArray();
++        JsonObject mod = new JsonObject(); mod.addProperty("set_id", "moderator"); modBadges.add(mod);
++        event.add("badges", modBadges);
++        observeChatRoles(event);
++        RoleObservation second = roleFor("role-test-user");
++        if (!second.known() || second.vip() || !second.moderator()) throw new IllegalStateException("MOD role observation failed");
++
++        event.add("badges", new JsonArray());
++        observeChatRoles(event);
++        RoleObservation cleared = roleFor("role-test-user");
++        if (!cleared.known() || cleared.vip() || cleared.moderator()) throw new IllegalStateException("Role revocation observation failed");
++        saveRoleObservations();
++        if (!Files.isRegularFile(ROLE_STORE_PATH)) throw new IllegalStateException("Role observation store was not written");
++        System.out.println("CHAINABRIDGE_ROLE_BADGE_SELF_TEST_OK");
++    }
++
+     private void saveBotSafely() {
+         try { saveBot(); }
+         catch (Exception error) { System.err.println("[bot] Could not persist encrypted bot session: " + safeError(error)); }
+@@ -981,6 +1124,11 @@
+         }
+     }
+ 
++    record RoleObservation(boolean vip, boolean moderator, long observedAtEpochSeconds, String login) {
++        static RoleObservation unknown() { return new RoleObservation(false, false, 0L, ""); }
++        boolean known() { return observedAtEpochSeconds > 0L; }
++    }
++
+     private record HttpResult(int status, String body) { }
+     private record DeviceStart(String deviceCode, String userCode, String verificationUri, int expiresIn, int interval) { }
+     private record TokenExchange(String accessToken, String refreshToken, int expiresIn) { }
+--- a/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
+@@ -60,7 +60,7 @@
+  */
+ public final class ChainaBridgeMain {
+     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+-    private static final String VERSION = "0.4.0-alpha.7";
++    private static final String VERSION = "0.4.0-alpha.8";
+     private static final String REQUIRED_SCOPE = "user:read:subscriptions";
+     private static final Path CONFIG_PATH = Path.of("chainabridge.properties");
+     private static final Path KEY_PATH = Path.of("chainabridge-keys.json");
+@@ -105,6 +105,10 @@
+         }
+         if (java.util.Arrays.asList(args).contains("--self-test-bot-store")) {
+             bridge.botEventSub.selfTestEncryptedStore();
++            return;
++        }
++        if (java.util.Arrays.asList(args).contains("--self-test-roles")) {
++            bridge.botEventSub.selfTestRoleObservations();
+             return;
+         }
+         bridge.start();
+@@ -147,7 +151,7 @@
+         System.out.println(" Broadcaster: " + current.broadcasterLogin);
+         System.out.println(" Twitch token storage: AES-256-GCM ENCRYPTED DISK");
+         System.out.println(" Chaina OAuth token: NOT USED");
+-        System.out.println(" Twitch bot: @ChainaMinecraftBot (EventSub + configurable chat commands)");
++        System.out.println(" Twitch bot: @ChainaMinecraftBot (EventSub + commands + VIP/MOD badge roles)");
+         System.out.println(" Bot panel: http://127.0.0.1:" + current.port + "/bot");
+         System.out.println(" Bot commands: http://127.0.0.1:" + current.port + "/bot/commands");
+         System.out.println(" Public signing key: " + publicKeyBase64);
+@@ -309,6 +313,7 @@
+             payload.addProperty("twitch_login", "");
+             payload.addProperty("tier", 0);
+             payload.addProperty("pending", pending.containsKey(minecraftUuid));
++            addUnknownRoleStatus(payload);
+             sendEnvelope(exchange, 200, payload);
+             return;
+         }
+@@ -326,6 +331,7 @@
+             payload.addProperty("twitch_login", account.login());
+             payload.addProperty("tier", tier);
+             payload.addProperty("pending", false);
++            addRoleStatus(payload, botEventSub.roleFor(account.userId()));
+             sendEnvelope(exchange, 200, payload);
+         } catch (ReauthRequired reauth) {
+             accounts.remove(minecraftUuid);
+@@ -335,11 +341,30 @@
+             payload.addProperty("twitch_login", "");
+             payload.addProperty("tier", 0);
+             payload.addProperty("pending", false);
++            addUnknownRoleStatus(payload);
+             payload.addProperty("reauth_required", true);
+             sendEnvelope(exchange, 200, payload);
+         } catch (Exception e) {
+             sendError(exchange, 502, "No se pudo consultar la cuenta Twitch: " + safeError(e));
+         }
++    }
++
++    private static void addUnknownRoleStatus(JsonObject payload) {
++        payload.addProperty("vip", false);
++        payload.addProperty("moderator", false);
++        payload.addProperty("roles_known", false);
++        payload.addProperty("roles_observed_at", 0L);
++    }
++
++    private static void addRoleStatus(JsonObject payload, BotEventSubService.RoleObservation roles) {
++        if (roles == null || !roles.known()) {
++            addUnknownRoleStatus(payload);
++            return;
++        }
++        payload.addProperty("vip", roles.vip());
++        payload.addProperty("moderator", roles.moderator());
++        payload.addProperty("roles_known", true);
++        payload.addProperty("roles_observed_at", roles.observedAtEpochSeconds());
+     }
+ 
+     private void handleChannelStatus(HttpExchange exchange) throws IOException {
