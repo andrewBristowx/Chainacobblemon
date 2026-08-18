@@ -1,0 +1,1 @@
+Build Chainacobblemon 0.3.0-alpha.25 from the exact alpha.24 published source with the fishing capture resolver hotfix.
