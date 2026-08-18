@@ -1,0 +1,69 @@
+        if (root == null) throw new IOException("JSON vacío");
+        Map<String, String> nextVars = new LinkedHashMap<>();
+        JsonObject vars = root.has("variables") && root.get("variables").isJsonObject() ? root.getAsJsonObject("variables") : new JsonObject();
+        for (Map.Entry<String, JsonElement> entry : vars.entrySet()) if (entry.getValue().isJsonPrimitive()) nextVars.put(entry.getKey(), entry.getValue().getAsString());
+        List<CommandDef> next = new ArrayList<>();
+        JsonArray array = root.has("commands") && root.get("commands").isJsonArray() ? root.getAsJsonArray("commands") : new JsonArray();
+        Set<String> seen = ConcurrentHashMap.newKeySet();
+        for (JsonElement element : array) {
+            if (!element.isJsonObject()) continue;
+            JsonObject json = element.getAsJsonObject();
+            String command = normalizeCommand(string(json, "command"));
+            if (command.isBlank() || !seen.add(command)) continue;
+            List<String> aliases = new ArrayList<>();
+            if (json.has("aliases") && json.get("aliases").isJsonArray()) {
+                for (JsonElement alias : json.getAsJsonArray("aliases")) {
+                    String normalized = normalizeCommand(alias.getAsString());
+                    if (!normalized.isBlank() && !normalized.equals(command) && !aliases.contains(normalized)) aliases.add(normalized);
+                }
+            }
+            next.add(new CommandDef(command, List.copyOf(aliases), bool(json, "enabled", true), string(json, "response"), clamp(integer(json, "cooldown_seconds", 30),0,3600), normalizeAccess(string(json, "access"))));
+        }
+        commands = List.copyOf(next);
+        variables = Map.copyOf(nextVars);
+        commandsMtime = mtime(COMMANDS_PATH);
+        System.out.println("[bot-config] Loaded " + commands.size() + " chat command(s).");
+    }
+
+    private synchronized void loadAutoMessages() throws IOException {
+        JsonObject root = GSON.fromJson(Files.readString(AUTO_PATH, StandardCharsets.UTF_8), JsonObject.class);
+        if (root == null) throw new IOException("JSON vacío");
+        List<AutoMessageDef> next = new ArrayList<>();
+        JsonArray array = root.has("messages") && root.get("messages").isJsonArray() ? root.getAsJsonArray("messages") : new JsonArray();
+        for (JsonElement element : array) {
+            if (!element.isJsonObject()) continue;
+            JsonObject json = element.getAsJsonObject();
+            String id = normalizeId(string(json, "id"));
+            if (id.isBlank()) continue;
+            next.add(new AutoMessageDef(id, bool(json,"enabled",true), string(json,"message"), clamp(integer(json,"interval_minutes",30),1,1440), bool(json,"only_when_live",true), clamp(integer(json,"require_recent_chat_minutes",10),0,1440)));
+            autoLastSent.putIfAbsent(id, System.currentTimeMillis());
+        }
+        autoMessages = List.copyOf(next);
+        autoMtime = mtime(AUTO_PATH);
+        System.out.println("[bot-config] Loaded " + autoMessages.size() + " automatic message(s).");
+    }
+
+    private synchronized void saveCommands() throws IOException {
+        JsonObject root = new JsonObject(); root.addProperty("version",1);
+        JsonObject vars = new JsonObject(); for (Map.Entry<String,String> entry : variables.entrySet()) vars.addProperty(entry.getKey(), entry.getValue()); root.add("variables", vars);
+        JsonArray array = new JsonArray();
+        for (CommandDef def : commands) {
+            JsonObject json = new JsonObject(); json.addProperty("command",def.command()); JsonArray aliases = new JsonArray(); def.aliases().forEach(aliases::add); json.add("aliases",aliases);
+            json.addProperty("enabled",def.enabled()); json.addProperty("response",def.response()); json.addProperty("cooldown_seconds",def.cooldownSeconds()); json.addProperty("access",def.access()); array.add(json);
+        }
+        root.add("commands", array); atomicWrite(COMMANDS_PATH, GSON.toJson(root)); commandsMtime = mtime(COMMANDS_PATH);
+    }
+
+    private synchronized void saveAutoMessages() throws IOException {
+        JsonObject root = new JsonObject(); root.addProperty("version",1); JsonArray array = new JsonArray();
+        for (AutoMessageDef def : autoMessages) {
+            JsonObject json = new JsonObject(); json.addProperty("id",def.id()); json.addProperty("enabled",def.enabled()); json.addProperty("message",def.message()); json.addProperty("interval_minutes",def.intervalMinutes()); json.addProperty("only_when_live",def.onlyWhenLive()); json.addProperty("require_recent_chat_minutes",def.requireRecentChatMinutes()); array.add(json);
+        }
+        root.add("messages",array); atomicWrite(AUTO_PATH,GSON.toJson(root)); autoMtime = mtime(AUTO_PATH);
+    }
+
+    private void writeDefaultCommands() throws IOException {
+        variables = Map.of("server","Cobbleverse","discord","!discord");
+        commands = List.of(
+                new CommandDef("!server", List.of("!servidor","!minecraft"), true, "✨ ¿Quieres jugar con la comunidad de Chaina? Toda la información, requisitos y cómo entrar al servidor están en nuestro Discord 💜 Escribe {discord} en el chat.", 30, "everyone"),
+                new CommandDef("!vincular", List.of("!link"), true, "🎮 Vincula tu cuenta de Twitch dentro del servidor para que podamos reconocer tu suscripción y darte tus beneficios de SUB CHAINA 💜", 30, "everyone"),
