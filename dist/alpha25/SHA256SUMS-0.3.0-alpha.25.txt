@@ -1,2 +1,2 @@
 739c48c8bd488623b6cf1ff61bc3756c4432f474dbd6ecc49d2962f2f94b8fa1  Chainacobblemon-0.3.0-alpha.25+1.21.1.jar
-2f90657866244383d93605417568ccfbdff9fec1b8cda012a4de2a7eeeb5c94f  Chainacobblemon-0.3.0-alpha.25-source.zip
+0e8473f24172a113ef29b5e4388a123fb9886f9f1eb84164e2b3978d22273c47  Chainacobblemon-0.3.0-alpha.25-source.zip
