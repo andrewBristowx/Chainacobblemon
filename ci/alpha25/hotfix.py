@@ -25,7 +25,7 @@ new = '''    private static Object resolveBall(Identifier ballId) throws Reflect
 
         // Cobblemon 1.7.3 exposes its data registry through the JVM-static
         // getPokeBall(ResourceLocation) method. The Kotlin POKE_BALL property itself is
-        // not a public Java field, so Class#getField("POKE_BALL") can never resolve it.
+        // not a public Java field, so reflective field lookup cannot resolve it.
         if (ballId != null) {
             for (Method method : pokeBallsClass.getMethods()) {
                 if (!method.getName().equals("getPokeBall") || method.getParameterCount() != 1) continue;
