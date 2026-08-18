@@ -46,7 +46,9 @@ jobs:
           src='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java'
           main='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java'
           grep -q 'mod_version=0.3.0-alpha.26+1.21.1' /tmp/chainacobblemon/gradle.properties
-          grep -q 'parameterType.isInstance(captureEvent)' "$src"
+          grep -q 'parameterType.isArray()' "$src"
+          grep -q 'Array.newInstance(componentType, 1)' "$src"
+          grep -q 'Array.set(events, 0, captureEvent)' "$src"
           grep -q 'Fishing capture was stored but PokemonCapturedEvent could not be published' "$src"
           grep -q 'Could not store automatic fishing capture' "$src"
           grep -q '0.3.0-alpha.26+1.21.1' "$main"
