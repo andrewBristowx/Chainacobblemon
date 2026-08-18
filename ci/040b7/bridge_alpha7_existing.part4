@@ -1,0 +1,61 @@
++        BotAccount current = ensureToken();
++        if (!writePermissionReady) {
++            ValidatedUser validated = validateToken(current.accessToken());
++            current = verifyBotIdentity(current, validated, System.currentTimeMillis());
++            account = current;
++            saveBotSafely();
++        }
++        if (!writePermissionReady) throw new ReauthRequired("Falta user:write:chat; reautoriza ChainaMinecraftBot desde /bot.");
++        String broadcasterId = resolveUserId(current, broadcasterSupplier.get());
++        JsonObject body = new JsonObject();
++        body.addProperty("broadcaster_id", broadcasterId);
++        body.addProperty("sender_id", current.userId());
++        body.addProperty("message", message == null ? "" : message);
++        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.twitch.tv/helix/chat/messages"))
++                .timeout(Duration.ofSeconds(15))
++                .header("Authorization", "Bearer " + current.accessToken())
++                .header("Client-Id", clientIdSupplier.get())
++                .header("Content-Type", "application/json")
++                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8)).build();
++        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
++        if (response.statusCode() / 100 != 2) {
++            if (response.statusCode() == 401 || response.statusCode() == 403) writePermissionReady = false;
++            throw new IOException("Send Chat Message HTTP " + response.statusCode() + ": " + twitchMessage(response.body()));
++        }
++        JsonObject root = object(response.body());
++        JsonArray data = root.has("data") && root.get("data").isJsonArray() ? root.getAsJsonArray("data") : new JsonArray();
++        if (!data.isEmpty()) {
++            JsonObject first = data.get(0).getAsJsonObject();
++            if (first.has("is_sent") && !first.get("is_sent").getAsBoolean()) {
++                JsonObject reason = first.has("drop_reason") && first.get("drop_reason").isJsonObject() ? first.getAsJsonObject("drop_reason") : new JsonObject();
++                throw new IOException("Twitch descartó el mensaje: " + string(reason, "message"));
++            }
++        }
++    }
++
++    private boolean isBroadcasterOnlineWithBot() throws Exception {
++        BotAccount current = ensureToken();
++        String broadcasterId = resolveUserId(current, broadcasterSupplier.get());
++        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.twitch.tv/helix/streams?user_id=" + enc(broadcasterId)))
++                .timeout(Duration.ofSeconds(12))
++                .header("Authorization", "Bearer " + current.accessToken())
++                .header("Client-Id", clientIdSupplier.get()).GET().build();
++        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
++        if (response.statusCode() / 100 != 2) throw new IOException("Streams HTTP " + response.statusCode() + ": " + twitchMessage(response.body()));
++        JsonObject root = object(response.body());
++        return root.has("data") && root.get("data").isJsonArray() && !root.getAsJsonArray("data").isEmpty();
++    }
++
+     private synchronized void loadBotSafely() {
+         if (!Files.exists(BOT_STORE_PATH)) return;
+         try {
+@@ -656,7 +752,8 @@
+                         string(json, "refresh_token"), longValue(json, "expires_at", 0), longValue(json, "last_validated", 0));
+                 if (!restored.accessToken().isBlank() && EXPECTED_BOT_LOGIN.equalsIgnoreCase(restored.login())) {
+                     account = restored;
+-                    lastStatus = "Sesión cifrada de @ChainaMinecraftBot restaurada.";
++                    writePermissionReady = false;
++                    lastStatus = "Sesión cifrada de @ChainaMinecraftBot restaurada. Validando permisos…";
+                     System.out.println("[bot] Encrypted @ChainaMinecraftBot session restored.");
+                 }
+             } finally {
