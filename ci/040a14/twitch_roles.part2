@@ -1,0 +1,139 @@
++                    player.getGameProfile().getName(), exception);
+         }
+     }
+ 
+@@ -58,26 +74,30 @@
+         };
+     }
+ 
+-    private static String desiredGroup(TwitchProfile profile, ChainacobblemonConfig.TwitchSettings settings) {
+-        if (!profile.linked) return null;
+-        return switch (profile.tier) {
++    static String roleLabel(TwitchProfile profile) {
++        if (profile == null || !profile.linked || !profile.twitchRolesKnown) return "";
++        if (profile.twitchModerator) return "MOD TWITCH";
++        if (profile.twitchVip) return "VIP TWITCH";
++        return "";
++    }
++
++    private static Set<String> desiredGroups(TwitchProfile profile, ChainacobblemonConfig.TwitchSettings settings) {
++        LinkedHashSet<String> desired = new LinkedHashSet<>();
++        if (!profile.linked) return desired;
++        String subscription = switch (profile.tier) {
+             case 3 -> settings.tier3Group;
+             case 2 -> settings.tier2Group;
+             case 1 -> settings.tier1Group;
+             default -> settings.linkedGroup;
+         };
++        add(desired, subscription);
++        if (profile.twitchVip) add(desired, settings.vipTwitchGroup);
++        if (profile.twitchModerator) add(desired, settings.moderatorTwitchGroup);
++        return desired;
+     }
+ 
+     private static void add(Set<String> groups, String value) {
+-        if (value != null && !value.isBlank()) groups.add(value.strip().toLowerCase(java.util.Locale.ROOT));
+-    }
+-
+-    private static Object invokeCompatible(Object target, String name, Object argument) throws Exception {
+-        for (Method method : target.getClass().getMethods()) {
+-            if (!method.getName().equals(name) || method.getParameterCount() != 1) continue;
+-            if (!method.getParameterTypes()[0].isInstance(argument)) continue;
+-            return method.invoke(target, argument);
+-        }
+-        throw new NoSuchMethodException(target.getClass().getName() + "#" + name);
++        if (value == null || value.isBlank()) return;
++        groups.add(value.strip().toLowerCase(Locale.ROOT));
+     }
+ }
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+@@ -78,6 +78,7 @@
+             profile.twitchUserId = "";
+             profile.twitchLogin = "";
+             profile.tier = 0;
++            clearTwitchRoles(profile);
+             profile.touch();
+             store.save();
+         }
+@@ -248,6 +249,7 @@
+             profile.twitchUserId = "dev-" + player.getUuid();
+             profile.twitchLogin = "dev_" + player.getGameProfile().getName().toLowerCase(Locale.ROOT);
+             profile.tier = 0;
++            clearTwitchRoles(profile);
+             profile.touch();
+             store.save();
+             TwitchRankService.sync(player, profile, settings());
+@@ -339,12 +341,23 @@
+ 
+     private boolean applyBridgeStatus(ServerPlayerEntity player, TwitchBridgeClient.PlayerStatus status) {
+         TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+-        boolean changed = profile.linked != status.linked() || profile.tier != status.tier()
+-                || !profile.twitchLogin.equals(status.twitchLogin());
+-        profile.linked = status.linked();
+-        profile.twitchUserId = status.linked() ? status.twitchUserId() : "";
+-        profile.twitchLogin = status.linked() ? status.twitchLogin() : "";
+-        profile.tier = status.linked() ? status.tier() : 0;
++        boolean nextLinked = status.linked();
++        boolean nextRolesKnown = nextLinked && status.rolesKnown();
++        boolean nextVip = nextRolesKnown && status.vip();
++        boolean nextModerator = nextRolesKnown && status.moderator();
++        long nextObservedAt = nextRolesKnown ? Math.max(0L, status.rolesObservedAt()) : 0L;
++        boolean changed = profile.linked != nextLinked || profile.tier != status.tier()
++                || !profile.twitchLogin.equals(status.twitchLogin())
++                || profile.twitchVip != nextVip || profile.twitchModerator != nextModerator
++                || profile.twitchRolesKnown != nextRolesKnown;
++        profile.linked = nextLinked;
++        profile.twitchUserId = nextLinked ? status.twitchUserId() : "";
++        profile.twitchLogin = nextLinked ? status.twitchLogin() : "";
++        profile.tier = nextLinked ? status.tier() : 0;
++        profile.twitchRolesKnown = nextRolesKnown;
++        profile.twitchVip = nextVip;
++        profile.twitchModerator = nextModerator;
++        profile.twitchRolesObservedAtEpochSeconds = nextObservedAt;
+         profile.touch();
+         store.save();
+         if (changed) TwitchRankService.sync(player, profile, settings());
+@@ -412,9 +425,17 @@
+         profile.twitchUserId = "";
+         profile.twitchLogin = "";
+         profile.tier = 0;
++        clearTwitchRoles(profile);
+         profile.touch();
+         store.save();
+         TwitchRankService.sync(player, profile, settings());
++    }
++
++    private static void clearTwitchRoles(TwitchProfile profile) {
++        profile.twitchVip = false;
++        profile.twitchModerator = false;
++        profile.twitchRolesKnown = false;
++        profile.twitchRolesObservedAtEpochSeconds = 0L;
+     }
+ 
+     public boolean debugSetTier(ServerPlayerEntity player, int tier) {
+@@ -443,7 +464,8 @@
+         TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+         return "Twitch=" + settings().mode + " | Chaina=" + (channelOnline ? "ONLINE" : "OFFLINE")
+                 + " | bonus=" + (channelOnline && streamBonuses.active() ? streamBonuses.summary() : "inactivos")
+-                + " | vinculado=" + profile.linked + " | tier=" + profile.tier + " | rango=" + TwitchRankService.label(profile);
++                + " | vinculado=" + profile.linked + " | tier=" + profile.tier + " | rango=" + TwitchRankService.label(profile)
++                + " | twitch_role=" + (TwitchRankService.roleLabel(profile).isBlank() ? "sin detectar" : TwitchRankService.roleLabel(profile));
+     }
+ 
+     private TwitchSnapshot snapshot(ServerPlayerEntity player, String message) {
+@@ -464,7 +486,8 @@
+         snapshot.linked = profile.linked;
+         snapshot.twitchLogin = profile.twitchLogin;
+         snapshot.tier = profile.tier;
+-        snapshot.rankLabel = TwitchRankService.label(profile);
++        String roleLabel = TwitchRankService.roleLabel(profile);
++        snapshot.rankLabel = TwitchRankService.label(profile) + (roleLabel.isBlank() ? "" : " · " + roleLabel);
+         snapshot.lastSync = profile.lastSyncEpochSeconds <= 0 ? "Nunca" : TIME.format(Instant.ofEpochSecond(profile.lastSyncEpochSeconds));
+         snapshot.message = message == null ? "" : message;
+         return snapshot;
+@@ -584,6 +607,18 @@
+         return Math.clamp(profile.tier, 0, 3);
+     }
+ 
++    boolean vipForIntegration(ServerPlayerEntity player) {
