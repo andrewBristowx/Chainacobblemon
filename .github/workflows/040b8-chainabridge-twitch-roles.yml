@@ -1,0 +1,211 @@
+name: Build ChainaBridge 0.4.0-alpha.8 Twitch Role Badges
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative ChainaBridge alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/ChainaBridge-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/bridge-unzip /tmp/chainabridge
+          mkdir -p /tmp/bridge-unzip
+          unzip -q dist/040a5/ChainaBridge-0.4.0-alpha.5-source.zip -d /tmp/bridge-unzip
+          if [ -d /tmp/bridge-unzip/bridge-alpha5 ]; then
+            mv /tmp/bridge-unzip/bridge-alpha5 /tmp/chainabridge
+          else
+            mkdir -p /tmp/chainabridge
+            cp -a /tmp/bridge-unzip/. /tmp/chainabridge/
+          fi
+          grep -q "version = '0.4.0-alpha.5'" /tmp/chainabridge/build.gradle
+
+      - name: Restore validated ChainaBridge alpha.6 EventSub
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainabridge
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040b6/bridge_alpha6_support.patch"
+          cat \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part0" \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part1" \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part2" \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part3" \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part4" \
+            "$GITHUB_WORKSPACE/ci/040b6/BotEventSubService.part5" \
+            > src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
+
+      - name: Restore validated ChainaBridge alpha.7 commands
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainabridge
+          cat \
+            "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_existing.part0" \
+            "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_existing.part1" \
+            "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_existing.part2" \
+            "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_existing.part3" \
+            "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_existing.part4" \
+            > /tmp/bridge-alpha7.patch
+          patch -p1 < /tmp/bridge-alpha7.patch
+          cat \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part0" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part1" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part2" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part3" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part4" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part5" \
+            "$GITHUB_WORKSPACE/ci/040b7/BotCommandManager.part6" \
+            > src/main/java/com/andrewbristowx/chainabridge/BotCommandManager.java
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040b7/bridge_alpha7_followup.patch"
+          grep -q "version = '0.4.0-alpha.7'" build.gradle
+
+      - name: Apply ChainaBridge alpha.8 role badges
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainabridge
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040b8_twitch_roles.patch"
+
+      - name: Verify alpha.8 source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainabridge
+          MAIN=src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
+          BOT=src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
+          grep -q "version = '0.4.0-alpha.8'" build.gradle
+          grep -q '0.4.0-alpha.8' "$MAIN"
+          grep -q 'chainabridge-role-observations.json' "$BOT"
+          grep -q 'observeChatRoles' "$BOT"
+          grep -q 'ROLE_OBSERVATION_TTL_SECONDS' "$BOT"
+          grep -q '"vip"' "$BOT"
+          grep -q '"moderator"' "$BOT"
+          grep -q 'roles_known' "$MAIN"
+          grep -q 'roles_observed_at' "$MAIN"
+          grep -q 'addProperty("vip"' "$MAIN"
+          grep -q 'addProperty("moderator"' "$MAIN"
+          grep -q 'CHAINABRIDGE_ROLE_BADGE_SELF_TEST_OK' "$BOT"
+          grep -q 'user:read:chat' "$BOT"
+          grep -q 'user:write:chat' "$BOT"
+          grep -q 'user:bot' "$BOT"
+          ! grep -q 'channel:read:vips' "$BOT"
+          ! grep -qi 'client_secret' "$BOT"
+
+      - name: Install Gradle 9.6.1
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://services.gradle.org/distributions/gradle-9.6.1-bin.zip -o /tmp/gradle-9.6.1-bin.zip
+          unzip -q /tmp/gradle-9.6.1-bin.zip -d /tmp
+
+      - name: Compile ChainaBridge alpha.8
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainabridge
+          /tmp/gradle-9.6.1/bin/gradle clean jar --no-daemon
+          JAR=build/libs/ChainaBridge-0.4.0-alpha.8.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainabridge/ChainaBridgeMain.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainabridge/BotEventSubService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainabridge/BotCommandManager.class'
+
+      - name: Test encrypted player authorization persistence
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar
+          rm -rf /tmp/test-player-store && mkdir -p /tmp/test-player-store && cd /tmp/test-player-store
+          java -jar "$JAR" --self-test-store | tee output.txt
+          grep -q 'CHAINABRIDGE_ENCRYPTED_STORE_SELF_TEST_OK' output.txt
+          test -s chainabridge-accounts.enc
+          ! grep -q 'TOKEN-MUST-NOT-APPEAR' chainabridge-accounts.enc
+
+      - name: Test encrypted bot authorization persistence
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar
+          rm -rf /tmp/test-bot-store && mkdir -p /tmp/test-bot-store && cd /tmp/test-bot-store
+          java -jar "$JAR" --self-test-bot-store | tee output.txt
+          grep -q 'CHAINABRIDGE_ENCRYPTED_BOT_STORE_SELF_TEST_OK' output.txt
+          test -s chainabridge-bot.enc
+          ! grep -q 'BOT_ACCESS_TOKEN_MUST_NOT_APPEAR_PLAINTEXT' chainabridge-bot.enc
+
+      - name: Test Twitch role badge observations
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar
+          rm -rf /tmp/test-role-store && mkdir -p /tmp/test-role-store && cd /tmp/test-role-store
+          java -jar "$JAR" --self-test-roles | tee output.txt
+          grep -q 'CHAINABRIDGE_ROLE_BADGE_SELF_TEST_OK' output.txt
+          test -s chainabridge-role-observations.json
+          grep -q 'role-test-user' chainabridge-role-observations.json
+
+      - name: Test configurable commands remain available
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar
+          rm -rf /tmp/test-http && mkdir -p /tmp/test-http && cd /tmp/test-http
+          java -jar "$JAR" > bridge.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/bot/commands > commands.html; then break; fi
+            sleep 1
+          done
+          grep -q '!server' commands.html
+          grep -q '!vincular' commands.html
+          grep -q '!beneficios' commands.html
+          kill $PID
+          wait $PID || true
+          trap - EXIT
+
+      - name: Prepare release package
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/chainabridge-alpha8-out
+          rm -rf "$OUT" /tmp/chainabridge-pack
+          mkdir -p "$OUT" /tmp/chainabridge-pack
+          cp /tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar "$OUT/"
+          cp /tmp/chainabridge/build/libs/ChainaBridge-0.4.0-alpha.8.jar /tmp/chainabridge-pack/
+          cp /tmp/chainabridge/INICIAR-CHAINABRIDGE.bat /tmp/chainabridge-pack/
+          cp /tmp/chainabridge/README.md /tmp/chainabridge-pack/
+          cd /tmp/chainabridge-pack
+          zip -qr "$OUT/ChainaBridge-0.4.0-alpha.8-PACK.zip" .
+          cd /tmp/chainabridge
+          zip -qr "$OUT/ChainaBridge-0.4.0-alpha.8-source.zip" . -x 'build/*' '.gradle/*'
+          cat > "$OUT/README-ALPHA8.txt" <<'TXT'
+          ChainaBridge 0.4.0-alpha.8 - Twitch VIP/MOD badge observations
+
+          Keep all existing alpha.7 encrypted/config files. No Twitch reauthorization is required.
+          No Chaina OAuth token or Client Secret is used.
+
+          The existing channel.chat.message EventSub payload is inspected for Twitch badges.
+          VIP and MOD observations are stored as non-sensitive metadata in:
+          chainabridge-role-observations.json
+
+          A VIP/MOD role becomes known after that Twitch account speaks in @chainavt chat.
+          The observation expires after 7 days unless refreshed by another message.
+          If a previously-known VIP/MOD later speaks without the badge, the role is cleared immediately.
+
+          Player status now exposes vip, moderator, roles_known and roles_observed_at for Chainacobblemon alpha.14+.
+          TXT
+          cd "$OUT"
+          sha256sum ChainaBridge-0.4.0-alpha.8.jar ChainaBridge-0.4.0-alpha.8-PACK.zip ChainaBridge-0.4.0-alpha.8-source.zip > SHA256SUMS-0.4.0-alpha.8.txt
+
+      - name: Upload ChainaBridge alpha.8 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChainaBridge-0.4.0-alpha.8-Twitch-Roles
+          path: /tmp/chainabridge-alpha8-out/*
+          if-no-files-found: error
+          retention-days: 90
