@@ -1,0 +1,134 @@
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.13+1.21.1
++mod_version=0.4.0-alpha.14+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+@@ -65,7 +65,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.13+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.14+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+@@ -1,7 +1,7 @@
+ package com.andrewbristowx.chainacobblemon.config;
+ 
+ public final class ChainacobblemonConfig {
+-    public int configVersion = 15;
++    public int configVersion = 16;
+     public boolean debugLogging = false;
+     public boolean playerDataEnabled = true;
+     public HubSettings hub = new HubSettings();
+@@ -29,7 +29,7 @@
+         twitch.normalize();
+         migrateLegacyRankGroups();
+         if (previousConfigVersion < 10) migrateTreasureTicketRewards();
+-        configVersion = 15;
++        configVersion = 16;
+     }
+ 
+     /** 0.5.0 adds the Tesoros de Chaina ticket without deleting customized daily rewards. */
+@@ -104,6 +104,9 @@
+         public String tier1Group = "sub_chaina";
+         public String tier2Group = "sub_chaina_plus";
+         public String tier3Group = "sub_chaina_plus_plus";
++        /** Secondary Twitch role groups observed from Chaina's authoritative chat badges. */
++        public String vipTwitchGroup = "vip_chaina";
++        public String moderatorTwitchGroup = "mod_chaina";
+ 
+         public void normalize() {
+             if (mode == null) mode = "bridge";
+@@ -132,6 +135,8 @@
+             tier1Group = normalizeGroup(tier1Group, "sub_chaina");
+             tier2Group = normalizeGroup(tier2Group, "sub_chaina_plus");
+             tier3Group = normalizeGroup(tier3Group, "sub_chaina_plus_plus");
++            vipTwitchGroup = normalizeGroup(vipTwitchGroup, "vip_chaina");
++            moderatorTwitchGroup = normalizeGroup(moderatorTwitchGroup, "mod_chaina");
+         }
+ 
+         private static double clamp01(double value, double fallback, double maximum) {
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
+@@ -57,13 +57,18 @@
+                     List.of("chainacobblemon.twitch.sub.2")));
+             futures.add(ensureGroup(api, settings.tier3Group, settings.tier2Group,
+                     List.of("chainacobblemon.twitch.sub.3")));
++            futures.add(ensureGroup(api, settings.vipTwitchGroup, null,
++                    List.of("chainacobblemon.twitch.vip")));
++            futures.add(ensureGroup(api, settings.moderatorTwitchGroup, null,
++                    List.of("chainacobblemon.twitch.mod")));
+ 
+             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {
+                 if (error != null) {
+                     Chainacobblemon.LOGGER.warn("LuckPerms Chaina group bootstrap finished with an error", error);
+                 } else {
+-                    Chainacobblemon.LOGGER.info("LuckPerms ready: Twitch groups {} -> {} -> {} -> {}",
+-                            settings.linkedGroup, settings.tier1Group, settings.tier2Group, settings.tier3Group);
++                    Chainacobblemon.LOGGER.info("LuckPerms ready: Twitch groups {} -> {} -> {} -> {} + roles {} / {}",
++                            settings.linkedGroup, settings.tier1Group, settings.tier2Group, settings.tier3Group,
++                            settings.vipTwitchGroup, settings.moderatorTwitchGroup);
+                 }
+                 GROUP_CACHE.clear();
+             });
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java
+@@ -23,6 +23,8 @@
+     private static final int SUB_1 = 0xC985FF;
+     private static final int SUB_2 = 0xFF77C9;
+     private static final int SUB_3 = 0xFFD166;
++    private static final int TWITCH_VIP = 0xFF69C9;
++    private static final int TWITCH_MOD = 0x63E6A1;
+ 
+     private RankDisplayService() { }
+ 
+@@ -37,6 +39,21 @@
+         out.append(tag(primary.label, primary.color));
+         out.append(Text.literal(" "));
+         out.append(Text.literal(player.getGameProfile().getName()).setStyle(Style.EMPTY.withColor(primary.nameColor)));
++        boolean twitchMod = twitch != null && twitch.moderatorForIntegration(player);
++        boolean twitchVip = twitch != null && twitch.vipForIntegration(player);
++        if (twitch != null) {
++            var settings = twitch.settingsForIntegration();
++            if (!twitchMod) twitchMod = groups.contains(normalize(settings.moderatorTwitchGroup));
++            if (!twitchVip) twitchVip = groups.contains(normalize(settings.vipTwitchGroup));
++        }
++        // Twitch does not normally allow VIP and moderator simultaneously; MOD wins if stale data overlaps.
++        if (twitchMod) {
++            out.append(Text.literal(" "));
++            out.append(compactRole("◆MOD", TWITCH_MOD));
++        } else if (twitchVip) {
++            out.append(Text.literal(" "));
++            out.append(compactRole("◆VIP", TWITCH_VIP));
++        }
+         if (tier > 0) {
+             out.append(Text.literal(" "));
+             out.append(tag("SUB " + roman(tier), subColor(tier)));
+@@ -46,6 +63,10 @@
+ 
+     private static Text tag(String label, int color) {
+         return Text.literal("[" + label + "]").setStyle(Style.EMPTY.withColor(color).withBold(true));
++    }
++
++    private static Text compactRole(String label, int color) {
++        return Text.literal(label).setStyle(Style.EMPTY.withColor(color).withBold(true));
+     }
+ 
+     private static Primary primary(Set<String> groups) {
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
+@@ -49,7 +49,9 @@
+         String query = "?minecraft_uuid=" + encode(minecraftUuid) + "&broadcaster=" + encode(settings.broadcasterLogin);
+         return get("/v1/player/status" + query).thenApply(json -> new PlayerStatus(
+                 bool(json, "linked"), string(json, "twitch_user_id"), string(json, "twitch_login"),
+-                Math.clamp(integer(json, "tier"), 0, 3), bool(json, "pending")));
