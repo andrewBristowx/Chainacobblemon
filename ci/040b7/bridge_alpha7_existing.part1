@@ -1,0 +1,92 @@
+-Nunca pegues un Client Secret, token de Chaina, `chainabridge-master.key`, `chainabridge-accounts.enc` o `chainabridge-bot.enc` en GitHub o en el chat.
++Nunca subas a GitHub ni compartas `chainabridge-master.key`, `chainabridge-accounts.enc` o `chainabridge-bot.enc`.
+--- a/build.gradle
++++ b/build.gradle
+@@ -4,7 +4,7 @@
+ }
+ 
+ group = 'com.andrewbristowx.chainabridge'
+-version = '0.4.0-alpha.6'
++version = '0.4.0-alpha.7'
+ 
+ repositories {
+     mavenCentral()
+@@ -26,7 +26,7 @@
+ 
+ tasks.named('jar') {
+     archiveBaseName = 'ChainaBridge'
+-    archiveVersion = '0.4.0-alpha.6'
++    archiveVersion = '0.4.0-alpha.7'
+     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+     manifest {
+         attributes 'Main-Class': application.mainClass.get()
+--- a/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
+@@ -60,7 +60,7 @@
+  */
+ public final class ChainaBridgeMain {
+     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+-    private static final String VERSION = "0.4.0-alpha.6";
++    private static final String VERSION = "0.4.0-alpha.7";
+     private static final String REQUIRED_SCOPE = "user:read:subscriptions";
+     private static final Path CONFIG_PATH = Path.of("chainabridge.properties");
+     private static final Path KEY_PATH = Path.of("chainabridge-keys.json");
+@@ -127,6 +127,12 @@
+         server.createContext("/bot/status", botEventSub::handleStatus);
+         server.createContext("/bot/unlink", botEventSub::handleUnlink);
+         server.createContext("/bot/eventsub/reconnect", botEventSub::handleReconnect);
++        server.createContext("/bot/commands", botEventSub::handleCommandsPage);
++        server.createContext("/bot/commands/save", botEventSub::handleCommandSave);
++        server.createContext("/bot/commands/delete", botEventSub::handleCommandDelete);
++        server.createContext("/bot/commands/reload", botEventSub::handleCommandReload);
++        server.createContext("/bot/automessages/save", botEventSub::handleAutoMessageSave);
++        server.createContext("/bot/automessages/delete", botEventSub::handleAutoMessageDelete);
+         server.start();
+ 
+         scheduler.scheduleWithFixedDelay(this::pollPendingSafely, 1, 1, TimeUnit.SECONDS);
+@@ -141,8 +147,9 @@
+         System.out.println(" Broadcaster: " + current.broadcasterLogin);
+         System.out.println(" Twitch token storage: AES-256-GCM ENCRYPTED DISK");
+         System.out.println(" Chaina OAuth token: NOT USED");
+-        System.out.println(" Twitch bot: @ChainaMinecraftBot (EventSub chat listener)");
++        System.out.println(" Twitch bot: @ChainaMinecraftBot (EventSub + configurable chat commands)");
+         System.out.println(" Bot panel: http://127.0.0.1:" + current.port + "/bot");
++        System.out.println(" Bot commands: http://127.0.0.1:" + current.port + "/bot/commands");
+         System.out.println(" Public signing key: " + publicKeyBase64);
+         if (!current.configured()) {
+             System.out.println();
+@@ -173,6 +180,10 @@
+         payload.addProperty("bot_linked", botEventSub.linked());
+         payload.addProperty("bot_login", botEventSub.login());
+         payload.addProperty("eventsub_connected", botEventSub.eventSubConnected());
++        payload.addProperty("bot_write_ready", botEventSub.writePermissionReady());
++        payload.addProperty("bot_commands", botEventSub.commandCount());
++        payload.addProperty("bot_enabled_commands", botEventSub.enabledCommandCount());
++        payload.addProperty("bot_automessages", botEventSub.autoMessageCount());
+         payload.addProperty("eventsub_bits_events", botEventSub.bitsEventCount());
+         payload.addProperty("eventsub_subscription_events", botEventSub.subscriptionEventCount());
+         payload.addProperty("eventsub_gift_events", botEventSub.giftEventCount());
+--- a/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
++++ b/src/main/java/com/andrewbristowx/chainabridge/BotEventSubService.java
+@@ -42,7 +42,7 @@
+ /**
+  * Twitch EventSub listener owned by ChainaMinecraftBot.
+  *
+- * The bot has only user:read:chat + user:bot. Access/refresh tokens are stored
++ * The bot uses user:read:chat + user:write:chat + user:bot. Access/refresh tokens are stored
+  * in a separate AES-256-GCM file using the same ChainaBridge master key.
+  * No broadcaster OAuth token is used. ChainaMinecraftBot must be a moderator
+  * in the configured broadcaster channel for the chat EventSub subscriptions.
+@@ -52,7 +52,8 @@
+     private static final String EXPECTED_BOT_LOGIN = "chainaminecraftbot";
+     private static final String SCOPE_READ_CHAT = "user:read:chat";
+     private static final String SCOPE_USER_BOT = "user:bot";
+-    private static final String BOT_SCOPES = SCOPE_READ_CHAT + " " + SCOPE_USER_BOT;
++    private static final String SCOPE_WRITE_CHAT = "user:write:chat";
++    private static final String BOT_SCOPES = SCOPE_READ_CHAT + " " + SCOPE_WRITE_CHAT + " " + SCOPE_USER_BOT;
+     private static final URI DEFAULT_EVENTSUB_WS = URI.create("wss://eventsub.wss.twitch.tv/ws");
+     private static final Path BOT_STORE_PATH = Path.of("chainabridge-bot.enc");
+     private static final byte[] BOT_STORE_AAD = "ChainaBridge-AES-GCM-bot-store-v1".getBytes(StandardCharsets.UTF_8);
+@@ -69,6 +70,7 @@
+     private final AtomicLong bitsEvents = new AtomicLong();
+     private final AtomicLong subscriptionEvents = new AtomicLong();
