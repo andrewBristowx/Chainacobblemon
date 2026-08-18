@@ -1,0 +1,147 @@
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+    }
+
+    private static void redirect(HttpExchange exchange, String path) throws IOException {
+        exchange.getResponseHeaders().set("Location", path);
+        exchange.sendResponseHeaders(303, -1);
+        exchange.close();
+    }
+
+    private static String simplePage(String title, String message) {
+        return "<html><body style='font-family:sans-serif;background:#17101d;color:#eee;padding:40px'><h2 style='color:#ff72b6'>" + title + "</h2><p>" + message + "</p><p><a href='/bot'>Volver</a></p></body></html>";
+    }
+
+    private static JsonObject object(String json) {
+        try {
+            JsonObject obj = GSON.fromJson(json, JsonObject.class);
+            return obj == null ? new JsonObject() : obj;
+        } catch (Exception error) { return new JsonObject(); }
+    }
+
+    private static JsonObject object(JsonObject parent, String key) {
+        return parent != null && parent.has(key) && parent.get(key).isJsonObject() ? parent.getAsJsonObject(key) : new JsonObject();
+    }
+
+    private static String string(JsonObject json, String key) {
+        try { return json != null && json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsString() : ""; }
+        catch (Exception error) { return ""; }
+    }
+
+    private static boolean bool(JsonObject json, String key) {
+        try { return json != null && json.has(key) && !json.get(key).isJsonNull() && json.get(key).getAsBoolean(); }
+        catch (Exception error) { return false; }
+    }
+
+    private static int integer(JsonObject json, String key, int fallback) {
+        try { return json != null && json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsInt() : fallback; }
+        catch (Exception error) { return fallback; }
+    }
+
+    private static long longValue(JsonObject json, String key, long fallback) {
+        try { return json != null && json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsLong() : fallback; }
+        catch (Exception error) { return fallback; }
+    }
+
+    private static String twitchMessage(String body) {
+        JsonObject json = object(body);
+        String message = string(json, "message");
+        return message.isBlank() ? body : message;
+    }
+
+    private static String tier(String raw) {
+        return switch (raw) {
+            case "3000" -> "Tier 3";
+            case "2000" -> "Tier 2";
+            case "1000" -> "Tier 1";
+            default -> raw == null || raw.isBlank() ? "Tier ?" : raw;
+        };
+    }
+
+    private static String enc(String value) { return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8); }
+    private static String safe(String value) { return value == null ? "" : value.strip(); }
+    private static String safeError(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        String message = current.getMessage();
+        return current.getClass().getSimpleName() + (message == null || message.isBlank() ? "" : ": " + message);
+    }
+    private static String html(String value) {
+        return safe(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    }
+    private static String jsString(String value) { return GSON.toJson(value == null ? "" : value); }
+
+    private final class EventSubListener implements WebSocket.Listener {
+        private final boolean transferExistingSubscriptions;
+        private final StringBuilder buffer = new StringBuilder();
+        private volatile WebSocket socket;
+
+        private EventSubListener(boolean transferExistingSubscriptions) {
+            this.transferExistingSubscriptions = transferExistingSubscriptions;
+        }
+
+        @Override
+        public void onOpen(WebSocket webSocket) {
+            this.socket = webSocket;
+            webSocket.request(1);
+        }
+
+        @Override
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            buffer.append(data);
+            if (last) {
+                String message = buffer.toString();
+                buffer.setLength(0);
+                handleWebSocketMessage(message, this);
+            }
+            webSocket.request(1);
+            return null;
+        }
+
+        @Override
+        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            if (BotEventSubService.this.webSocket == webSocket) {
+                BotEventSubService.this.webSocket = null;
+                socketConnected = false;
+                subscriptionsReady = false;
+                eventSubSessionId = "";
+                if (!stopping && account != null) {
+                    lastStatus = "EventSub cerrado (" + statusCode + "). Reconectando…";
+                    scheduleReconnect();
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public void onError(WebSocket webSocket, Throwable error) {
+            if (BotEventSubService.this.webSocket == webSocket || BotEventSubService.this.webSocket == null) {
+                socketConnected = false;
+                subscriptionsReady = false;
+                lastStatus = "Error EventSub. Reconectando…";
+                System.err.println("[eventsub] WebSocket error: " + safeError(error));
+                scheduleReconnect();
+            }
+        }
+    }
+
+    private record HttpResult(int status, String body) { }
+    private record DeviceStart(String deviceCode, String userCode, String verificationUri, int expiresIn, int interval) { }
+    private record TokenExchange(String accessToken, String refreshToken, int expiresIn) { }
+    private record ValidatedUser(String userId, String login, Set<String> scopes) { }
+    private record PendingBotLink(String requestId, String deviceCode, String userCode, String verificationUri,
+                                  long expiresAtMillis, int intervalSeconds, long nextPollMillis) {
+        PendingBotLink withNextPoll(long value) {
+            return new PendingBotLink(requestId, deviceCode, userCode, verificationUri, expiresAtMillis, intervalSeconds, value);
+        }
+    }
+    private record BotAccount(String userId, String login, String accessToken, String refreshToken,
+                              long expiresAtMillis, long lastValidatedMillis) { }
+    private static final class AuthorizationPending extends Exception { }
+    private static final class AuthorizationDenied extends Exception { }
+    private static final class Unauthorized extends Exception { }
+    private static final class ReauthRequired extends Exception { ReauthRequired(String message) { super(message); } }
+}
