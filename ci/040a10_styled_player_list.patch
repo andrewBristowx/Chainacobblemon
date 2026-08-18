@@ -1,0 +1,334 @@
+diff -ruN alpha9baseline/CHANGELOG.md alpha10work/CHANGELOG.md
+--- alpha9baseline/CHANGELOG.md	2026-08-18 19:10:15.000000000 +0000
++++ alpha10work/CHANGELOG.md	2026-08-18 19:43:01.508618385 +0000
+@@ -1,3 +1,11 @@
++# 0.4.0-alpha.10
++
++- Integración opcional con Styled Player List: placeholders dinámicos de Twitch/bonus, estilo `Chaina Server` autogenerado y seleccionado una sola vez como TAB predeterminado.
++- El TAB muestra estado EN VIVO/OFFLINE, DIRECTO LEGENDARIO, bonus activos, jugadores conectados y crédito `Holy.gg`.
++- En singleplayer fuerza `client_show_in_singleplayer=true`. Se respalda `styledplayerlist/config.json` antes de la primera modificación.
++- Si Styled Player List está activo, el HUD flotante de Twitch se oculta por defecto para evitar información duplicada; si falta o falla la integración, el HUD sigue como fallback.
++- Text Placeholder API 2.4.2+1.21 se incluye dentro de Chainacobblemon.
++
+ # 0.4.0-alpha.8
+ 
+ - La GUI `CHAINA × TWITCH` pasa a ser exclusivamente una herramienta de administración.
+diff -ruN alpha9baseline/build.gradle alpha10work/build.gradle
+--- alpha9baseline/build.gradle	2026-08-16 19:55:01.000000000 +0000
++++ alpha10work/build.gradle	2026-08-18 19:43:00.970232339 +0000
+@@ -29,6 +29,10 @@
+             includeGroup 'software.bernie.geckolib'
+         }
+     }
++    maven {
++        name = 'Nucleoid'
++        url = 'https://maven.nucleoid.xyz/'
++    }
+     mavenCentral()
+ }
+ 
+@@ -56,6 +60,7 @@
+ 
+     modImplementation "maven.modrinth:MdwFAVRL:${project.cobblemon_version_id}"
+     modImplementation "software.bernie.geckolib:geckolib-fabric-${project.minecraft_version}:${project.geckolib_version}"
++    modImplementation include("eu.pb4:placeholder-api:2.4.2+1.21")
+ 
+     if (project.hasProperty('cobbleverse_runtime_dir')) {
+         modRuntimeOnly fileTree(dir: project.property('cobbleverse_runtime_dir'), include: [
+diff -ruN alpha9baseline/gradle.properties alpha10work/gradle.properties
+--- alpha9baseline/gradle.properties	2026-08-18 19:10:15.000000000 +0000
++++ alpha10work/gradle.properties	2026-08-18 19:43:00.970491164 +0000
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.9+1.21.1
++mod_version=0.4.0-alpha.10+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+diff -ruN alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+--- alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 19:10:15.000000000 +0000
++++ alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 19:43:00.970389834 +0000
+@@ -54,6 +54,7 @@
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchCommands;
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchNetworking;
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchService;
++import com.andrewbristowx.chainacobblemon.twitch.StyledPlayerListIntegration;
+ import net.fabricmc.api.ModInitializer;
+ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+@@ -62,7 +63,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.9+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.10+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+@@ -90,6 +91,7 @@
+ 
+         CONFIG_MANAGER.initialize();
+         TWITCH_SERVICE.initialize();
++        StyledPlayerListIntegration.initialize(TWITCH_SERVICE);
+         TwitchNetworking.initializeServer(TWITCH_SERVICE);
+         TwitchCommands.register(TWITCH_SERVICE);
+         BANNER_MANAGER.initialize();
+@@ -156,6 +158,7 @@
+         ServerLifecycleEvents.SERVER_STARTING.register(server -> StreamotesServerIntegration.ensureOfficialChannel());
+         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+             TWITCH_SERVICE.serverStarted(server);
++            StyledPlayerListIntegration.serverStarted(server, CONFIG_MANAGER);
+             POKEMON_CATALOG.rebuild();
+             NpcBattleService.auditCompatibility(server);
+             HologramService.restoreAll(server);
+diff -ruN alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+--- alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java	2026-08-18 19:10:15.000000000 +0000
++++ alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java	2026-08-18 19:43:00.970632114 +0000
+@@ -1,7 +1,7 @@
+ package com.andrewbristowx.chainacobblemon.config;
+ 
+ public final class ChainacobblemonConfig {
+-    public int configVersion = 13;
++    public int configVersion = 14;
+     public boolean debugLogging = false;
+     public boolean playerDataEnabled = true;
+     public HubSettings hub = new HubSettings();
+@@ -29,7 +29,7 @@
+         twitch.normalize();
+         migrateLegacyRankGroups();
+         if (previousConfigVersion < 10) migrateTreasureTicketRewards();
+-        configVersion = 13;
++        configVersion = 14;
+     }
+ 
+     /** 0.5.0 adds the Tesoros de Chaina ticket without deleting customized daily rewards. */
+@@ -75,6 +75,10 @@
+         public boolean announceOffline = true;
+         /** Compact Twitch status indicator rendered at the top-center of the Minecraft HUD. */
+         public boolean streamHudEnabled = true;
++        /** Auto-create a Chaina style and placeholders when Styled Player List is installed. */
++        public boolean styledPlayerListAutoConfigure = true;
++        /** Hide the floating Twitch HUD when the same information is available in TAB. */
++        public boolean hideStreamHudWhenTabIntegrated = true;
+         /** Roll persistent random gameplay bonuses once per Chaina live session. */
+         public boolean streamBonusesEnabled = true;
+         public int streamBonusCount = 3;
+diff -ruN alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java
+--- alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java	1970-01-01 00:00:00.000000000 +0000
++++ alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java	2026-08-18 19:43:23.678797063 +0000
+@@ -0,0 +1,170 @@
++package com.andrewbristowx.chainacobblemon.twitch;
++
++import com.andrewbristowx.chainacobblemon.Chainacobblemon;
++import com.andrewbristowx.chainacobblemon.config.ConfigManager;
++import com.google.gson.Gson;
++import com.google.gson.GsonBuilder;
++import com.google.gson.JsonObject;
++import com.google.gson.JsonParser;
++import eu.pb4.placeholders.api.PlaceholderResult;
++import eu.pb4.placeholders.api.Placeholders;
++import net.fabricmc.loader.api.FabricLoader;
++import net.minecraft.server.MinecraftServer;
++import net.minecraft.text.Text;
++import net.minecraft.util.Formatting;
++import net.minecraft.util.Identifier;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardCopyOption;
++import java.util.List;
++
++/** Optional server-side integration with Styled Player List + Text Placeholder API. */
++public final class StyledPlayerListIntegration {
++    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
++    private static final String STYLE_ID = "chaina";
++    private static final String STYLED_PLAYER_LIST_MOD = "styledplayerlist";
++    private static volatile boolean active;
++    private static volatile TwitchService twitch;
++
++    private StyledPlayerListIntegration() { }
++
++    public static void initialize(TwitchService service) {
++        twitch = service;
++        register("twitch_status", StyledPlayerListIntegration::statusText);
++        register("stream_bonuses", StyledPlayerListIntegration::bonusesText);
++        register("stream_jackpot", StyledPlayerListIntegration::jackpotText);
++        register("stream_bonus_1", () -> bonusText(0));
++        register("stream_bonus_2", () -> bonusText(1));
++        register("stream_bonus_3", () -> bonusText(2));
++        register("stream_bonus_4", () -> bonusText(3));
++        register("twitch_channel", () -> Text.literal("twitch.tv/" + broadcaster()).formatted(Formatting.LIGHT_PURPLE));
++    }
++
++    public static void serverStarted(MinecraftServer server, ConfigManager configManager) {
++        active = false;
++        if (!configManager.get().twitch.styledPlayerListAutoConfigure) return;
++        if (!FabricLoader.getInstance().isModLoaded(STYLED_PLAYER_LIST_MOD)) {
++            Chainacobblemon.LOGGER.info("Styled Player List not detected; keeping Chaina Twitch HUD fallback");
++            return;
++        }
++
++        try {
++            Path splDir = FabricLoader.getInstance().getConfigDir().resolve("styledplayerlist");
++            Path stylesDir = splDir.resolve("styles");
++            Path styleFile = stylesDir.resolve(STYLE_ID + ".json");
++            Path configFile = splDir.resolve("config.json");
++            Path marker = configManager.configDirectory().resolve("styledplayerlist-auto-installed.json");
++
++            Files.createDirectories(stylesDir);
++            if (Files.notExists(styleFile)) {
++                Files.writeString(styleFile, defaultStyleJson(), StandardCharsets.UTF_8);
++                Chainacobblemon.LOGGER.info("Created Chaina Styled Player List style at {}", styleFile);
++            }
++
++            if (Files.notExists(marker)) {
++                JsonObject config = Files.exists(configFile)
++                        ? JsonParser.parseString(Files.readString(configFile, StandardCharsets.UTF_8)).getAsJsonObject()
++                        : new JsonObject();
++
++                if (Files.exists(configFile)) {
++                    Path backup = splDir.resolve("config.json.chaina-backup");
++                    if (Files.notExists(backup)) Files.copy(configFile, backup, StandardCopyOption.COPY_ATTRIBUTES);
++                }
++
++                if (!config.has("config_version")) config.addProperty("config_version", 2);
++                config.addProperty("default_style", STYLE_ID);
++                config.addProperty("client_show_in_singleplayer", true);
++                Files.writeString(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
++
++                JsonObject markerData = new JsonObject();
++                markerData.addProperty("installed", true);
++                markerData.addProperty("style", STYLE_ID);
++                markerData.addProperty("note", "Delete this marker to let Chainacobblemon select the Chaina style as default again.");
++                Files.writeString(marker, GSON.toJson(markerData), StandardCharsets.UTF_8);
++                Chainacobblemon.LOGGER.info("Selected Chaina as the default Styled Player List style (one-time auto configuration)");
++            }
++
++            int result = server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledplayerlist reload");
++            active = result > 0;
++            Chainacobblemon.LOGGER.info("Styled Player List Chaina integration active; reload result={}", result);
++        } catch (Throwable exception) {
++            active = false;
++            Chainacobblemon.LOGGER.warn("Could not auto-configure Styled Player List; Twitch HUD fallback remains enabled", exception);
++        }
++    }
++
++    public static boolean active() {
++        return active;
++    }
++
++    private static void register(String path, java.util.function.Supplier<Text> supplier) {
++        Placeholders.register(Identifier.of(Chainacobblemon.MOD_ID, path), (context, argument) -> PlaceholderResult.value(supplier.get()));
++    }
++
++    private static Text statusText() {
++        TwitchService service = twitch;
++        if (service == null || !service.channelKnownForIntegration()) {
++            return Text.literal("◌ CHAINA · COMPROBANDO TWITCH").formatted(Formatting.GRAY);
++        }
++        if (service.channelOnlineForIntegration()) {
++            return Text.literal("● CHAINA EN VIVO").formatted(Formatting.RED, Formatting.BOLD);
++        }
++        return Text.literal("● CHAINA OFFLINE").formatted(Formatting.DARK_GRAY, Formatting.BOLD);
++    }
++
++    private static Text bonusesText() {
++        TwitchService service = twitch;
++        if (service == null || !service.channelOnlineForIntegration() || !service.streamBonuses().active()) {
++            return Text.literal("Bonificaciones de directo inactivas").formatted(Formatting.GRAY);
++        }
++        return Text.literal(service.streamBonuses().summary()).formatted(Formatting.LIGHT_PURPLE);
++    }
++
++    private static Text jackpotText() {
++        TwitchService service = twitch;
++        if (service == null || !service.channelOnlineForIntegration() || !service.streamBonuses().jackpot()) return Text.empty();
++        return Text.literal("★ DIRECTO LEGENDARIO ★").formatted(Formatting.GOLD, Formatting.BOLD);
++    }
++
++    private static Text bonusText(int index) {
++        TwitchService service = twitch;
++        if (service == null || !service.channelOnlineForIntegration() || !service.streamBonuses().active()) return Text.empty();
++        List<String> labels = service.streamBonuses().hudLabels();
++        if (index < 0 || index >= labels.size()) return Text.empty();
++        return Text.literal(labels.get(index)).formatted(Formatting.LIGHT_PURPLE);
++    }
++
++    private static String broadcaster() {
++        TwitchService service = twitch;
++        return service == null ? "chainavt" : service.broadcasterForIntegration();
++    }
++
++    private static String defaultStyleJson() {
++        return """
++                {
++                  "style_name": "Chaina Server",
++                  "update_tick_time": 20,
++                  "list_header": [
++                    "<color:#a95cff>╭────────────── ✦ ──────────────╮</color>",
++                    "<bold><color:#ff6fcf>✦ CHAINA SERVER ✦</color></bold>",
++                    "",
++                    "%chainacobblemon:twitch_status%",
++                    "%chainacobblemon:stream_jackpot%",
++                    "%chainacobblemon:stream_bonuses%",
++                    "",
++                    "<gray>Jugadores conectados: <white>%server:online%</white><dark_gray>/</dark_gray><white>%server:max_players%</white></gray>",
++                    "<color:#a95cff>╰────────────── ✦ ──────────────╯</color>"
++                  ],
++                  "list_footer": [
++                    "<dark_gray>────────────────────────────────</dark_gray>",
++                    "<gray>Vincula tu Twitch para recibir tus beneficios de <light_purple>SUB CHAINA</light_purple></gray>",
++                    "<gray>Hosting gracias a <aqua><bold>Holy.gg</bold></aqua> ✦</gray>"
++                  ],
++                  "hidden_in_commands": false
++                }
++                """;
++    }
++}
+diff -ruN alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+--- alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java	2026-08-18 19:10:15.000000000 +0000
++++ alpha10work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java	2026-08-18 19:43:00.970855075 +0000
+@@ -454,7 +454,8 @@
+         snapshot.broadcaster = settings().broadcasterLogin;
+         snapshot.channelOnline = channelOnline;
+         snapshot.channelKnown = channelKnown;
+-        snapshot.streamHudEnabled = settings().streamHudEnabled;
++        snapshot.streamHudEnabled = settings().streamHudEnabled
++                && !(settings().hideStreamHudWhenTabIntegrated && StyledPlayerListIntegration.active());
+         snapshot.streamBonusesActive = channelKnown && channelOnline && streamBonuses.active();
+         snapshot.streamJackpot = snapshot.streamBonusesActive && streamBonuses.jackpot();
+         snapshot.streamSessionId = snapshot.streamBonusesActive ? streamBonuses.sessionId() : "";
+@@ -564,6 +565,18 @@
+         for (ServerPlayerEntity player : local.getPlayerManager().getPlayerList()) sendHudSnapshot(player);
+     }
+ 
++    boolean channelKnownForIntegration() {
++        return channelKnown;
++    }
++
++    boolean channelOnlineForIntegration() {
++        return channelOnline;
++    }
++
++    String broadcasterForIntegration() {
++        return settings().broadcasterLogin;
++    }
++
+     StreamBonusService streamBonuses() {
+         return streamBonuses;
+     }
+diff -ruN alpha9baseline/src/main/resources/fabric.mod.json alpha10work/src/main/resources/fabric.mod.json
+--- alpha9baseline/src/main/resources/fabric.mod.json	2026-08-16 23:01:56.000000000 +0000
++++ alpha10work/src/main/resources/fabric.mod.json	2026-08-18 19:43:00.970940452 +0000
+@@ -49,6 +49,7 @@
+   },
+   "suggests": {
+     "flan": "*",
+-    "luckperms": "*"
++    "luckperms": "*",
++    "styledplayerlist": "*"
+   }
+ }
