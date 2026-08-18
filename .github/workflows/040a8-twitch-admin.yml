@@ -42,11 +42,14 @@ jobs:
           cd /tmp/chainacobblemon
           patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
 
-      - name: Apply alpha.8 Twitch admin patch
+      - name: Apply alpha.8 Twitch admin patches
         run: |
           set -euxo pipefail
           cd /tmp/chainacobblemon
-          patch -p1 < "$GITHUB_WORKSPACE/ci/040a8_twitch_admin.patch"
+          for p in "$GITHUB_WORKSPACE"/ci/040a8/*.patch; do
+            echo "Applying $p"
+            patch -p1 < "$p"
+          done
 
       - name: Verify admin source contract
         run: |
