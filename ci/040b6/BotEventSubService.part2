@@ -1,0 +1,150 @@
+                System.err.println("[bot] Rejected OAuth from @" + user.login() + "; expected @ChainaMinecraftBot.");
+                return;
+            }
+            BotAccount next = new BotAccount(user.userId(), user.login(), token.accessToken(), token.refreshToken(),
+                    now + token.expiresIn() * 1000L, now);
+            account = next;
+            pending = null;
+            saveBot();
+            lastStatus = "@ChainaMinecraftBot vinculado. Conectando EventSub…";
+            System.out.println("[bot] @ChainaMinecraftBot linked (encrypted session saved). Starting EventSub for @" + broadcasterSupplier.get() + ".");
+            scheduler.schedule(this::connectEventSubSafely, 1, TimeUnit.SECONDS);
+        } catch (AuthorizationPending ignored) {
+            // Expected until the browser flow is completed.
+        } catch (AuthorizationDenied denied) {
+            pending = null;
+            lastStatus = "Autorización cancelada o caducada.";
+        }
+    }
+
+    private DeviceStart startDeviceCode(String clientId) throws Exception {
+        String form = "client_id=" + enc(clientId) + "&scopes=" + enc(BOT_SCOPES);
+        HttpResult result = postForm("https://id.twitch.tv/oauth2/device", form);
+        if (result.status() / 100 != 2) throw new IOException("Device Code HTTP " + result.status() + ": " + twitchMessage(result.body()));
+        JsonObject json = object(result.body());
+        return new DeviceStart(string(json, "device_code"), string(json, "user_code"), string(json, "verification_uri"),
+                integer(json, "expires_in", 1800), integer(json, "interval", 5));
+    }
+
+    private TokenExchange exchangeDeviceToken(PendingBotLink link) throws Exception {
+        String form = "client_id=" + enc(clientIdSupplier.get())
+                + "&scopes=" + enc(BOT_SCOPES)
+                + "&device_code=" + enc(link.deviceCode())
+                + "&grant_type=" + enc("urn:ietf:params:oauth:grant-type:device_code");
+        HttpResult result = postForm("https://id.twitch.tv/oauth2/token", form);
+        if (result.status() / 100 == 2) {
+            JsonObject json = object(result.body());
+            return new TokenExchange(string(json, "access_token"), string(json, "refresh_token"), integer(json, "expires_in", 14400));
+        }
+        String message = twitchMessage(result.body()).toLowerCase(Locale.ROOT);
+        if (message.contains("authorization_pending") || message.contains("slow_down")) throw new AuthorizationPending();
+        if (message.contains("expired") || message.contains("denied") || message.contains("declined")) throw new AuthorizationDenied();
+        throw new IOException("Token HTTP " + result.status() + ": " + message);
+    }
+
+    private void maintainSafely() {
+        if (account == null) return;
+        try {
+            BotAccount current = ensureToken();
+            if (!socketConnected || !subscriptionsReady) connectEventSubSafely();
+            if (current != null) lastStatus = eventSubConnected() ? "EventSub activo para @" + broadcasterSupplier.get() + "." : lastStatus;
+        } catch (ReauthRequired error) {
+            account = null;
+            saveBotSafely();
+            lastStatus = "Twitch requiere volver a autorizar ChainaMinecraftBot.";
+            closeSocket();
+        } catch (Exception error) {
+            System.err.println("[bot] Maintenance error: " + safeError(error));
+        }
+    }
+
+    private synchronized BotAccount ensureToken() throws Exception {
+        BotAccount current = account;
+        if (current == null) throw new ReauthRequired("Bot no vinculado.");
+        long now = System.currentTimeMillis();
+        if (now >= current.expiresAtMillis() - 60_000L) current = refresh(current);
+        if (now - current.lastValidatedMillis() >= 3_600_000L) {
+            try {
+                ValidatedUser validated = validateToken(current.accessToken());
+                current = verifyBotIdentity(current, validated, now);
+            } catch (Unauthorized unauthorized) {
+                current = refresh(current);
+                ValidatedUser validated = validateToken(current.accessToken());
+                current = verifyBotIdentity(current, validated, now);
+            }
+        }
+        if (!current.equals(account)) {
+            account = current;
+            saveBot();
+        }
+        return current;
+    }
+
+    private BotAccount verifyBotIdentity(BotAccount current, ValidatedUser validated, long now) throws ReauthRequired {
+        if (!EXPECTED_BOT_LOGIN.equalsIgnoreCase(validated.login())) throw new ReauthRequired("La sesión ya no pertenece a ChainaMinecraftBot.");
+        if (!validated.scopes().contains(SCOPE_READ_CHAT) || !validated.scopes().contains(SCOPE_USER_BOT)) {
+            throw new ReauthRequired("Faltan permisos del bot.");
+        }
+        return new BotAccount(validated.userId(), validated.login(), current.accessToken(), current.refreshToken(), current.expiresAtMillis(), now);
+    }
+
+    private BotAccount refresh(BotAccount current) throws Exception {
+        if (current.refreshToken() == null || current.refreshToken().isBlank()) throw new ReauthRequired("La sesión del bot no puede renovarse.");
+        String form = "grant_type=refresh_token&refresh_token=" + enc(current.refreshToken()) + "&client_id=" + enc(clientIdSupplier.get());
+        HttpResult result = postForm("https://id.twitch.tv/oauth2/token", form);
+        if (result.status() / 100 != 2) {
+            if (result.status() == 400 || result.status() == 401) throw new ReauthRequired("Twitch requiere volver a autorizar el bot.");
+            throw new IOException("Bot refresh HTTP " + result.status() + ": " + twitchMessage(result.body()));
+        }
+        JsonObject json = object(result.body());
+        String access = string(json, "access_token");
+        String refresh = string(json, "refresh_token");
+        if (access.isBlank() || refresh.isBlank()) throw new ReauthRequired("Twitch no devolvió una sesión renovable para el bot.");
+        BotAccount next = new BotAccount(current.userId(), current.login(), access, refresh,
+                System.currentTimeMillis() + integer(json, "expires_in", 14400) * 1000L, System.currentTimeMillis());
+        account = next;
+        saveBot();
+        return next;
+    }
+
+    private ValidatedUser validateToken(String accessToken) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("https://id.twitch.tv/oauth2/validate"))
+                .timeout(Duration.ofSeconds(12)).header("Authorization", "OAuth " + accessToken).GET().build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() == 401) throw new Unauthorized();
+        if (response.statusCode() / 100 != 2) throw new IOException("Validate HTTP " + response.statusCode());
+        JsonObject json = object(response.body());
+        Set<String> scopes = new HashSet<>();
+        JsonArray array = json.has("scopes") && json.get("scopes").isJsonArray() ? json.getAsJsonArray("scopes") : new JsonArray();
+        for (JsonElement element : array) scopes.add(element.getAsString());
+        return new ValidatedUser(string(json, "user_id"), string(json, "login"), scopes);
+    }
+
+    private void connectEventSubSafely() {
+        try { connectEventSub(DEFAULT_EVENTSUB_WS, false); }
+        catch (Throwable error) {
+            connectInProgress.set(false);
+            socketConnected = false;
+            subscriptionsReady = false;
+            lastStatus = "EventSub desconectado; reintentando…";
+            System.err.println("[eventsub] Connect error: " + safeError(error));
+            scheduleReconnect();
+        }
+    }
+
+    private void connectEventSub(URI uri, boolean transferExistingSubscriptions) throws Exception {
+        if (stopping || account == null) return;
+        if (!connectInProgress.compareAndSet(false, true)) return;
+        ensureToken();
+        EventSubListener listener = new EventSubListener(transferExistingSubscriptions);
+        http.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(15)).buildAsync(uri, listener)
+                .whenComplete((socket, error) -> {
+                    connectInProgress.set(false);
+                    if (error != null) {
+                        socketConnected = false;
+                        subscriptionsReady = false;
+                        lastStatus = "No se pudo conectar EventSub: " + safeError(error);
+                        System.err.println("[eventsub] WebSocket connection failed: " + safeError(error));
+                        scheduleReconnect();
+                    }
+                });
