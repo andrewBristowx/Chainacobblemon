@@ -50,13 +50,16 @@ jobs:
         run: |
           set -euxo pipefail
           python ci/alpha27/hotfix.py
+          python ci/alpha27/reflection_compat.py
           src='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java'
           main='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java'
           grep -q 'mod_version=0.3.0-alpha.27+1.21.1' /tmp/chainacobblemon/gradle.properties
-          grep -q 'BATTLE_STARTED_PRE.subscribe' "$src"
+          grep -q 'subscribeBattleSuppression' "$src"
           grep -q 'BATTLE_SUPPRESSION_GRACE_MS' "$src"
-          grep -q 'event.cancel()' "$src"
+          grep -q 'getField("BATTLE_STARTED_PRE")' "$src"
+          grep -q 'cancelEvent' "$src"
           grep -q 'cleanupEncounterEntity' "$src"
+          ! grep -q 'BattleStartedPreEvent' "$src"
           grep -q '0.3.0-alpha.27+1.21.1' "$main"
 
       - name: Compile and package alpha.27
