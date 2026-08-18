@@ -1,0 +1,47 @@
+diff -ruN a11src/CHANGELOG.md a12work/CHANGELOG.md
+--- a11src/CHANGELOG.md	2026-08-18 20:45:59.000000000 +0000
++++ a12work/CHANGELOG.md	2026-08-18 22:03:44.248955339 +0000
+@@ -1,3 +1,8 @@
++# 0.4.0-alpha.12
++
++- Compatibilidad HolyHosting/Cobbleverse: acepta la versión real de Pokeblocks `1.4.0-1.21.1` sin tratarla como inferior a `1.4.0`.
++- Sin cambios funcionales a Twitch, TAB, StyledChat, LuckPerms o bonus de directo.
++
+ # 0.4.0-alpha.11
+ 
+ - TAB Chaina v2: elimina el recordatorio duplicado de vincular Twitch, añade una cabecera/footer más decorados y usa nombres con rango coloreado.
+diff -ruN a11src/gradle.properties a12work/gradle.properties
+--- a11src/gradle.properties	2026-08-18 20:45:59.000000000 +0000
++++ a12work/gradle.properties	2026-08-18 22:03:44.248636797 +0000
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.11+1.21.1
++mod_version=0.4.0-alpha.12+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+diff -ruN a11src/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java a12work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+--- a11src/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 20:45:59.000000000 +0000
++++ a12work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 22:03:44.248827558 +0000
+@@ -65,7 +65,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.11+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.12+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+diff -ruN a11src/src/main/resources/fabric.mod.json a12work/src/main/resources/fabric.mod.json
+--- a11src/src/main/resources/fabric.mod.json	2026-08-18 20:45:59.000000000 +0000
++++ a12work/src/main/resources/fabric.mod.json	2026-08-18 22:03:44.248908794 +0000
+@@ -42,7 +42,7 @@
+     "rctapi": "=0.15.2-beta",
+     "rctmod": "=0.18.1-beta",
+     "lumymon": "=0.6.6",
+-    "pokeblocks": ">=1.4.0"
++    "pokeblocks": ">=1.4.0-1.21.1"
+   },
+   "recommends": {
+     "streamotes": "=1.2.12+1.21"
