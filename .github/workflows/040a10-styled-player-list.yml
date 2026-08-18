@@ -59,6 +59,8 @@ jobs:
             > /tmp/040a9-stream-bonuses.patch
           cd /tmp/chainacobblemon
           patch -p1 < /tmp/040a9-stream-bonuses.patch
+          # Keep the exact alpha.9 source compatibility fix that passed its final CI build.
+          sed -i 's/Stats\.INSTANCE\.getPERMANENT()/Stats.Companion.getPERMANENT()/g' src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
 
       - name: Apply alpha.10 Styled Player List integration
         run: |
@@ -74,9 +76,11 @@ jobs:
           INTEGRATION=src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java
           TWITCH=src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
           CONFIG=src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+          SERVICE=src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
           grep -q 'mod_version=0.4.0-alpha.10+1.21.1' gradle.properties
           grep -q '0.4.0-alpha.10+1.21.1' "$MAIN"
           grep -q 'eu.pb4:placeholder-api:2.4.2+1.21' build.gradle
+          grep -q 'Stats.Companion.getPERMANENT()' "$SERVICE"
           grep -q 'Placeholders.register' "$INTEGRATION"
           grep -q 'chainacobblemon:twitch_status' "$INTEGRATION"
           grep -q 'chainacobblemon:stream_bonuses' "$INTEGRATION"
