@@ -83,5 +83,5 @@ Execution failed for task ':compileJava' (registered by plugin class 'org.gradle
 > Check your code and dependencies to fix the compilation error(s)
 > Run with --scan to get full insights from a Build Scan (powered by Develocity).
 
-BUILD FAILED in 1m 2s
+BUILD FAILED in 47s
 2 actionable tasks: 2 executed
