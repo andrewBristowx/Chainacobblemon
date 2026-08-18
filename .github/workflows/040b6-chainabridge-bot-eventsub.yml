@@ -131,8 +131,18 @@ jobs:
             sleep 1
           done
           cat health.json
-          grep -q '"version":"0.4.0-alpha.6"' health.json
-          grep -q '"bot_linked":false' health.json
+          python3 - <<'PY'
+          import base64, json
+          envelope = json.load(open('health.json', encoding='utf-8'))
+          encoded = envelope['payload']
+          encoded += '=' * (-len(encoded) % 4)
+          payload = json.loads(base64.urlsafe_b64decode(encoded).decode('utf-8'))
+          assert payload['ok'] is True, payload
+          assert payload['version'] == '0.4.0-alpha.6', payload
+          assert payload['bot_linked'] is False, payload
+          assert payload['eventsub_connected'] is False, payload
+          print(payload)
+          PY
           curl -fsS http://127.0.0.1:8765/bot > bot.html
           grep -q 'ChainaMinecraftBot' bot.html
           grep -q 'user:read:chat' bot.html
