@@ -1,0 +1,128 @@
+name: Build Chainacobblemon 0.3.0-alpha.26 Fishing Event Fix
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.26
+    paths-ignore:
+      - 'dist/alpha26/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.25 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          test -f dist/alpha25/Chainacobblemon-0.3.0-alpha.25-source.zip
+          unzip -q dist/alpha25/Chainacobblemon-0.3.0-alpha.25-source.zip -d /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.25+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Apply alpha.26 fishing event fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/alpha26/hotfix.py
+          src='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java'
+          main='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java'
+          grep -q 'mod_version=0.3.0-alpha.26+1.21.1' /tmp/chainacobblemon/gradle.properties
+          grep -q 'parameterType.isInstance(captureEvent)' "$src"
+          grep -q 'Fishing capture was stored but PokemonCapturedEvent could not be published' "$src"
+          grep -q 'Could not store automatic fishing capture' "$src"
+          grep -q '0.3.0-alpha.26+1.21.1' "$main"
+
+      - name: Compile and package alpha.26
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/chainacobblemon
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon 2>&1 | tee /tmp/alpha26-build.log
+          rc=${PIPESTATUS[0]}
+
+          rm -rf /tmp/publish
+          mkdir -p /tmp/publish
+          echo '${{ github.run_id }}' > /tmp/publish/RUN_ID.txt
+          cp /tmp/alpha26-build.log /tmp/publish/BUILD_LOG.txt
+          cp src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java /tmp/publish/FishingMinigameService.java
+
+          if [ "$rc" -eq 0 ]; then
+            jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.26*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+            if [ -z "$jarfile" ]; then
+              echo 'FAILURE: build returned 0 but remapped alpha.26 jar was not found.' > /tmp/publish/BUILD_STATUS.txt
+              rc=88
+            else
+              cp "$jarfile" /tmp/publish/Chainacobblemon-0.3.0-alpha.26+1.21.1.jar
+              zip -qr /tmp/publish/Chainacobblemon-0.3.0-alpha.26-source.zip . -x './.gradle/*' './build/*'
+              cd /tmp/publish
+              sha256sum Chainacobblemon-0.3.0-alpha.26+1.21.1.jar Chainacobblemon-0.3.0-alpha.26-source.zip > SHA256SUMS-0.3.0-alpha.26.txt
+              echo 'SUCCESS' > BUILD_STATUS.txt
+            fi
+          else
+            echo "FAILURE rc=$rc" > /tmp/publish/BUILD_STATUS.txt
+          fi
+
+          echo "$rc" > /tmp/publish/BUILD_RC.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify alpha.26 output
+        if: steps.compile.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jarfile='/tmp/publish/Chainacobblemon-0.3.0-alpha.26+1.21.1.jar'
+          test -f "$jarfile"
+          rm -rf /tmp/jarcheck && mkdir -p /tmp/jarcheck
+          cd /tmp/jarcheck
+          jar xf "$jarfile"
+          grep -q '0.3.0-alpha.26' fabric.mod.json
+          test -f com/andrewbristowx/chainacobblemon/events/FishingMinigameService.class
+
+      - name: Upload authoritative alpha.26 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.26
+          path: /tmp/publish/*
+
+      - name: Publish build result to branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha26
+          mkdir -p dist/alpha26
+          cp -a /tmp/publish/. dist/alpha26/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha26
+          git commit -m 'ci: publish alpha.26 build result [skip ci]' || true
+          git push origin HEAD:release/0.3.0-alpha.26
+
+      - name: Fail workflow if compile failed
+        shell: bash
+        run: |
+          rc="$(cat /tmp/publish/BUILD_RC.txt)"
+          test "$rc" -eq 0
