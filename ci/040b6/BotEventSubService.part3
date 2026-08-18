@@ -1,0 +1,150 @@
+    }
+
+    private void scheduleReconnect() {
+        if (stopping || account == null) return;
+        scheduler.schedule(() -> {
+            if (!stopping && account != null && !socketConnected) connectEventSubSafely();
+        }, 5, TimeUnit.SECONDS);
+    }
+
+    private void closeSocket() {
+        WebSocket current = webSocket;
+        webSocket = null;
+        socketConnected = false;
+        subscriptionsReady = false;
+        eventSubSessionId = "";
+        if (current != null) current.abort();
+    }
+
+    private void createSubscriptions(String sessionId) {
+        try {
+            BotAccount current = ensureToken();
+            String broadcasterId = resolveUserId(current, broadcasterSupplier.get());
+            if (broadcasterId.isBlank()) throw new IOException("No se encontró el broadcaster @" + broadcasterSupplier.get());
+            createSubscription(current, sessionId, broadcasterId, "channel.chat.message");
+            createSubscription(current, sessionId, broadcasterId, "channel.chat.notification");
+            subscriptionsReady = true;
+            lastStatus = "EventSub activo: Bits/Cheers + subs/regalos de @" + broadcasterSupplier.get() + ".";
+            System.out.println("[eventsub] READY for @" + broadcasterSupplier.get() + " using @ChainaMinecraftBot.");
+            System.out.println("[eventsub] Listening: channel.chat.message (Bits/Cheers) + channel.chat.notification (subs/resubs/gifts).");
+        } catch (Exception error) {
+            subscriptionsReady = false;
+            String detail = safeError(error);
+            lastStatus = "EventSub no pudo suscribirse: " + detail;
+            System.err.println("[eventsub] Subscription setup failed: " + detail);
+            if (detail.contains("403") || detail.toLowerCase(Locale.ROOT).contains("authorization")) {
+                System.err.println("[eventsub] Check that @ChainaMinecraftBot is MOD in @" + broadcasterSupplier.get() + " and authorized user:read:chat + user:bot.");
+            }
+        }
+    }
+
+    private void createSubscription(BotAccount current, String sessionId, String broadcasterId, String type) throws Exception {
+        JsonObject body = new JsonObject();
+        body.addProperty("type", type);
+        body.addProperty("version", "1");
+        JsonObject condition = new JsonObject();
+        condition.addProperty("broadcaster_user_id", broadcasterId);
+        condition.addProperty("user_id", current.userId());
+        body.add("condition", condition);
+        JsonObject transport = new JsonObject();
+        transport.addProperty("method", "websocket");
+        transport.addProperty("session_id", sessionId);
+        body.add("transport", transport);
+        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.twitch.tv/helix/eventsub/subscriptions"))
+                .timeout(Duration.ofSeconds(15))
+                .header("Authorization", "Bearer " + current.accessToken())
+                .header("Client-Id", clientIdSupplier.get())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8)).build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() != 202) {
+            throw new IOException(type + " HTTP " + response.statusCode() + ": " + twitchMessage(response.body()));
+        }
+        System.out.println("[eventsub] subscribed " + type);
+    }
+
+    private String resolveUserId(BotAccount current, String login) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.twitch.tv/helix/users?login=" + enc(login)))
+                .timeout(Duration.ofSeconds(12))
+                .header("Authorization", "Bearer " + current.accessToken())
+                .header("Client-Id", clientIdSupplier.get()).GET().build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() == 401) throw new Unauthorized();
+        if (response.statusCode() / 100 != 2) throw new IOException("Users HTTP " + response.statusCode() + ": " + twitchMessage(response.body()));
+        JsonObject root = object(response.body());
+        JsonArray data = root.has("data") && root.get("data").isJsonArray() ? root.getAsJsonArray("data") : new JsonArray();
+        return data.isEmpty() ? "" : string(data.get(0).getAsJsonObject(), "id");
+    }
+
+    private void handleWebSocketMessage(String text, EventSubListener listener) {
+        try {
+            JsonObject root = object(text);
+            JsonObject metadata = root.has("metadata") && root.get("metadata").isJsonObject() ? root.getAsJsonObject("metadata") : new JsonObject();
+            String messageType = string(metadata, "message_type");
+            String messageId = string(metadata, "message_id");
+            if (!messageId.isBlank() && !seenMessageIds.add(messageId)) return;
+            if (seenMessageIds.size() > 2000) seenMessageIds.clear();
+
+            if ("session_welcome".equals(messageType)) {
+                JsonObject payload = object(root, "payload");
+                JsonObject session = object(payload, "session");
+                String sessionId = string(session, "id");
+                eventSubSessionId = sessionId;
+                socketConnected = true;
+                webSocket = listener.socket;
+                if (listener.transferExistingSubscriptions) {
+                    subscriptionsReady = true;
+                    lastStatus = "EventSub reconectado para @" + broadcasterSupplier.get() + ".";
+                    System.out.println("[eventsub] Session reconnected: " + sessionId);
+                } else {
+                    subscriptionsReady = false;
+                    lastStatus = "WebSocket conectado. Creando suscripciones EventSub…";
+                    Thread.startVirtualThread(() -> createSubscriptions(sessionId));
+                }
+                return;
+            }
+            if ("session_keepalive".equals(messageType)) return;
+            if ("session_reconnect".equals(messageType)) {
+                JsonObject session = object(object(root, "payload"), "session");
+                String reconnectUrl = string(session, "reconnect_url");
+                if (!reconnectUrl.isBlank()) {
+                    System.out.println("[eventsub] Twitch requested session reconnect.");
+                    socketConnected = false;
+                    connectInProgress.set(false);
+                    try { connectEventSub(URI.create(reconnectUrl), true); }
+                    catch (Exception error) { System.err.println("[eventsub] Reconnect URL failed: " + safeError(error)); scheduleReconnect(); }
+                }
+                return;
+            }
+            if ("revocation".equals(messageType)) {
+                JsonObject sub = object(object(root, "payload"), "subscription");
+                subscriptionsReady = false;
+                lastStatus = "Twitch revocó EventSub: " + string(sub, "status");
+                System.err.println("[eventsub] Subscription revoked: " + string(sub, "type") + " status=" + string(sub, "status"));
+                return;
+            }
+            if (!"notification".equals(messageType)) return;
+            JsonObject payload = object(root, "payload");
+            JsonObject subscription = object(payload, "subscription");
+            JsonObject event = object(payload, "event");
+            String type = string(subscription, "type");
+            if ("channel.chat.message".equals(type)) handleChatMessage(event);
+            else if ("channel.chat.notification".equals(type)) handleChatNotification(event);
+        } catch (Exception error) {
+            System.err.println("[eventsub] Could not parse event: " + safeError(error));
+        }
+    }
+
+    private void handleChatMessage(JsonObject event) {
+        JsonObject cheer = event.has("cheer") && event.get("cheer").isJsonObject() ? event.getAsJsonObject("cheer") : null;
+        if (cheer == null) return;
+        int bits = integer(cheer, "bits", 0);
+        if (bits <= 0) return;
+        String user = string(event, "chatter_user_login");
+        if (user.isBlank()) user = "anonimo";
+        String text = string(object(event, "message"), "text");
+        bitsEvents.incrementAndGet();
+        lastEvent = "BITS: @" + user + " -> " + bits + " Bits";
+        System.out.println("[eventsub][BITS] @" + user + " -> " + bits + " Bits" + (text.isBlank() ? "" : " | " + text));
+    }
+
