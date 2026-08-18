@@ -1,0 +1,212 @@
+on").getAsInt() : 0;
++            boolean managedStyle = markerData.has("installed") && markerData.get("installed").getAsBoolean();
++
++            if (Files.notExists(styleFile) || (managedStyle && installedStyleVersion < STYLE_VERSION)) {
++                if (Files.exists(styleFile)) {
++                    Path backup = stylesDir.resolve("chaina.json.alpha10-backup");
++                    if (Files.notExists(backup)) Files.copy(styleFile, backup, StandardCopyOption.COPY_ATTRIBUTES);
++                }
+                 Files.writeString(styleFile, defaultStyleJson(), StandardCharsets.UTF_8);
+-                Chainacobblemon.LOGGER.info("Created Chaina Styled Player List style at {}", styleFile);
++                Chainacobblemon.LOGGER.info("Installed Chaina Styled Player List style v{} at {}", STYLE_VERSION, styleFile);
+             }
+ 
+-            if (Files.notExists(marker)) {
+-                JsonObject config = Files.exists(configFile)
+-                        ? JsonParser.parseString(Files.readString(configFile, StandardCharsets.UTF_8)).getAsJsonObject()
+-                        : new JsonObject();
++            JsonObject config = Files.exists(configFile)
++                    ? JsonParser.parseString(Files.readString(configFile, StandardCharsets.UTF_8)).getAsJsonObject()
++                    : new JsonObject();
+ 
++            if (Files.notExists(marker)) {
+                 if (Files.exists(configFile)) {
+                     Path backup = splDir.resolve("config.json.chaina-backup");
+                     if (Files.notExists(backup)) Files.copy(configFile, backup, StandardCopyOption.COPY_ATTRIBUTES);
+                 }
+-
+                 if (!config.has("config_version")) config.addProperty("config_version", 2);
+                 config.addProperty("default_style", STYLE_ID);
+                 config.addProperty("client_show_in_singleplayer", true);
+-                Files.writeString(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
+-
+-                JsonObject markerData = new JsonObject();
+-                markerData.addProperty("installed", true);
+-                markerData.addProperty("style", STYLE_ID);
+-                markerData.addProperty("note", "Delete this marker to let Chainacobblemon select the Chaina style as default again.");
+-                Files.writeString(marker, GSON.toJson(markerData), StandardCharsets.UTF_8);
+-                Chainacobblemon.LOGGER.info("Selected Chaina as the default Styled Player List style (one-time auto configuration)");
++            } else if (installedStyleVersion < STYLE_VERSION && Files.exists(configFile)) {
++                Path backup = splDir.resolve("config.json.chaina-alpha11-backup");
++                if (Files.notExists(backup)) Files.copy(configFile, backup, StandardCopyOption.COPY_ATTRIBUTES);
+             }
+ 
++            configurePlayerNames(config);
++            Files.writeString(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
++
++            markerData.addProperty("installed", true);
++            markerData.addProperty("style", STYLE_ID);
++            markerData.addProperty("style_version", STYLE_VERSION);
++            markerData.addProperty("note", "Chainacobblemon updates only its managed Chaina style. Manual default_style changes are respected.");
++            Files.createDirectories(marker.getParent());
++            Files.writeString(marker, GSON.toJson(markerData), StandardCharsets.UTF_8);
++
+             server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledplayerlist reload");
+             active = true;
+-            Chainacobblemon.LOGGER.info("Styled Player List Chaina integration active; configuration reloaded successfully");
++            Chainacobblemon.LOGGER.info("Styled Player List Chaina integration active with rank placeholders");
++            if (configManager.get().twitch.styledPlayerListTabEmotes) ensureTabEmotes(server, assets);
+         } catch (Throwable exception) {
+             active = false;
+             Chainacobblemon.LOGGER.warn("Could not auto-configure Styled Player List; Twitch HUD fallback remains enabled", exception);
+@@ -100,6 +122,46 @@
+         return active;
+     }
+ 
++    private static void configurePlayerNames(JsonObject config) {
++        JsonObject player;
++        if (config.has("player") && config.get("player").isJsonObject()) player = config.getAsJsonObject("player");
++        else {
++            player = new JsonObject();
++            config.add("player", player);
++        }
++        player.addProperty("modify_name", true);
++        player.addProperty("format", "%chainacobblemon:styled_name%");
++        player.addProperty("update_tick_time", 20);
++    }
++
++    private static JsonObject readObject(Path file) {
++        try {
++            if (Files.exists(file)) return JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
++        } catch (Exception ignored) { }
++        return new JsonObject();
++    }
++
++    private static void ensureTabEmotes(MinecraftServer server, VisualAssetService assets) {
++        if (assets == null) return;
++        CompletableFuture.runAsync(() -> {
++            installEmote(server, assets, "chaina_tab_cute", CUTE_EMOTE_URL);
++            installEmote(server, assets, "chaina_tab_awa", AWA_EMOTE_URL);
++        });
++    }
++
++    private static void installEmote(MinecraftServer server, VisualAssetService assets, String id, String url) {
++        try {
++            Path folder = assets.mediaFolder(id);
++            VisualAssetService.Asset asset = Files.isRegularFile(folder.resolve("media.png"))
++                    ? assets.loadMedia(id)
++                    : assets.downloadMedia(id, url);
++            server.execute(() -> assets.broadcast(server, asset));
++            Chainacobblemon.LOGGER.info("Chaina TAB emote ready: {}", id);
++        } catch (Throwable exception) {
++            Chainacobblemon.LOGGER.warn("Could not prepare optional Chaina TAB emote {}", id, exception);
++        }
++    }
++
+     private static void register(String path, java.util.function.Supplier<Text> supplier) {
+         Placeholders.register(Identifier.of(Chainacobblemon.MOD_ID, path), (context, argument) -> PlaceholderResult.value(supplier.get()));
+     }
+@@ -118,7 +180,7 @@
+     private static Text bonusesText() {
+         TwitchService service = twitch;
+         if (service == null || !service.channelOnlineForIntegration() || !service.streamBonuses().active()) {
+-            return Text.literal("Bonificaciones de directo inactivas").formatted(Formatting.GRAY);
++            return Text.literal("✦ Bonus de stream inactivos ✦").formatted(Formatting.GRAY);
+         }
+         return Text.literal(service.streamBonuses().summary()).formatted(Formatting.LIGHT_PURPLE);
+     }
+@@ -148,20 +210,20 @@
+                   "style_name": "Chaina Server",
+                   "update_tick_time": 20,
+                   "list_header": [
+-                    "<color:#a95cff>╭────────────── ✦ ──────────────╮</color>",
+-                    "<bold><color:#ff6fcf>✦ CHAINA SERVER ✦</color></bold>",
+-                    "",
++                    "<color:#7e45bd>╭━━━━━━━━━━━━━━━━━━ ✦ ━━━━━━━━━━━━━━━━━━╮</color>",
++                    "<bold><color:#ff70cc>✦  CHAINA SERVER  ✦</color></bold>",
++                    "<color:#b778ff>• ───────────────────────────────── •</color>",
+                     "%chainacobblemon:twitch_status%",
+                     "%chainacobblemon:stream_jackpot%",
+                     "%chainacobblemon:stream_bonuses%",
+-                    "",
+-                    "<gray>Jugadores conectados: <white>%server:online%</white><dark_gray>/</dark_gray><white>%server:max_players%</white></gray>",
+-                    "<color:#a95cff>╰────────────── ✦ ──────────────╯</color>"
++                    "<dark_gray>• ───────────────────────────────── •</dark_gray>",
++                    "<gray>Entrenadores conectados</gray> <color:#ffffff><bold>%server:online%</bold></color><dark_gray>/</dark_gray><gray>%server:max_players%</gray>",
++                    "<color:#7e45bd>╰━━━━━━━━━━━━━━━━━━ ✦ ━━━━━━━━━━━━━━━━━━╯</color>"
+                   ],
+                   "list_footer": [
+-                    "<dark_gray>────────────────────────────────</dark_gray>",
+-                    "<gray>Vincula tu Twitch para recibir tus beneficios de <light_purple>SUB CHAINA</light_purple></gray>",
+-                    "<gray>Hosting gracias a <aqua><bold>Holy.gg</bold></aqua> ✦</gray>"
++                    "<color:#7e45bd>✦━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━✦</color>",
++                    "<color:#dba8ff>Gachas</color> <dark_gray>•</dark_gray> <color:#ff8fd4>Eventos</color> <dark_gray>•</dark_gray> <color:#8feaff>Cobblemon</color>",
++                    "<gray>Hosting gracias a</gray> <aqua><bold>Holy.gg</bold></aqua> <light_purple>♥</light_purple>"
+                   ],
+                   "hidden_in_commands": false
+                 }
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java	2026-08-18 05:39:20.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java	2026-08-18 20:36:53.372479947 +0000
+@@ -40,6 +40,7 @@
+                 invokeCompatible(data, "add", node);
+             }
+             invokeCompatible(userManager, "saveUser", user);
++            LuckPermsBootstrap.invalidate(player.getUuid());
+         } catch (ClassNotFoundException ignored) {
+             // Singleplayer/default Fabric mode: the internal Twitch rank remains active without LuckPerms.
+         } catch (Throwable exception) {
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java	2026-08-18 20:37:05.031812507 +0000
+@@ -454,8 +454,9 @@
+         snapshot.broadcaster = settings().broadcasterLogin;
+         snapshot.channelOnline = channelOnline;
+         snapshot.channelKnown = channelKnown;
++        snapshot.styledPlayerListIntegrated = StyledPlayerListIntegration.active();
+         snapshot.streamHudEnabled = settings().streamHudEnabled
+-                && !(settings().hideStreamHudWhenTabIntegrated && StyledPlayerListIntegration.active());
++                && !(settings().hideStreamHudWhenTabIntegrated && snapshot.styledPlayerListIntegrated);
+         snapshot.streamBonusesActive = channelKnown && channelOnline && streamBonuses.active();
+         snapshot.streamJackpot = snapshot.streamBonusesActive && streamBonuses.jackpot();
+         snapshot.streamSessionId = snapshot.streamBonusesActive ? streamBonuses.sessionId() : "";
+@@ -577,6 +578,16 @@
+         return settings().broadcasterLogin;
+     }
+ 
++    int tierForIntegration(ServerPlayerEntity player) {
++        if (player == null) return 0;
++        TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
++        return Math.clamp(profile.tier, 0, 3);
++    }
++
++    com.andrewbristowx.chainacobblemon.config.ChainacobblemonConfig.TwitchSettings settingsForIntegration() {
++        return settings();
++    }
++
+     StreamBonusService streamBonuses() {
+         return streamBonuses;
+     }
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java	2026-08-18 20:37:05.031358692 +0000
+@@ -13,6 +13,7 @@
+     public boolean channelOnline;
+     public boolean channelKnown;
+     public boolean streamHudEnabled = true;
++    public boolean styledPlayerListIntegrated;
+     public boolean streamBonusesActive;
+     public boolean streamJackpot;
+     public String streamSessionId = "";
+diff -ruN alpha10src/src/main/resources/fabric.mod.json alpha11work/src/main/resources/fabric.mod.json
+--- alpha10src/src/main/resources/fabric.mod.json	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/resources/fabric.mod.json	2026-08-18 20:37:26.752657806 +0000
+@@ -50,6 +50,7 @@
+   "suggests": {
+     "flan": "*",
+     "luckperms": "*",
+-    "styledplayerlist": "*"
++    "styledplayerlist": "*",
++    "styledchat": "*"
+   }
+ }
