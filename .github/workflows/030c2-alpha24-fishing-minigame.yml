@@ -49,6 +49,7 @@ jobs:
           base64 -d /tmp/alpha24-overlay.b64 > /tmp/alpha24-overlay.tar.gz
           echo '53856edcdf7f58941faaccded74c6ee5061d7f90642d47016e6fb473e5797bae  /tmp/alpha24-overlay.tar.gz' | sha256sum -c -
           tar -xzf /tmp/alpha24-overlay.tar.gz -C /tmp/chainacobblemon
+          python ci/alpha24/hotfix.py
           sed -i 's/mod_version=0.3.0-alpha.23+1.21.1/mod_version=0.3.0-alpha.24+1.21.1/' /tmp/chainacobblemon/gradle.properties
           grep -q 'mod_version=0.3.0-alpha.24+1.21.1' /tmp/chainacobblemon/gradle.properties
 
@@ -81,8 +82,12 @@ jobs:
           grep -q 'setCaughtBall' "$src"
           grep -q 'party.add' "$src"
           grep -q 'PokemonCapturedEvent' "$src"
+          grep -q 'postPokemonCapturedEvent' "$src"
+          grep -q 'resolveBall' "$src"
           grep -q 'ballForRod' "$src"
           grep -q 'Master · dominio máximo' "$src"
+          ! grep -q '^import com.cobblemon.mod.common.api.pokeball.PokeBalls;' "$src"
+          ! grep -q '^import com.cobblemon.mod.common.entity.pokeball.EmptyPokeBallEntity;' "$src"
           net='/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/EventNetworking.java'
           grep -q 'fishing_game' "$net"
           grep -q 'fishing_input' "$net"
