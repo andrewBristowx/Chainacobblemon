@@ -1,0 +1,150 @@
+    void handlePage(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "GET")) return;
+        BotAccount current = account;
+        String statusClass = current == null ? "warn" : "ok";
+        String accountText = current == null ? "No vinculada" : "@" + html(current.login());
+        String eventSubText = current == null ? "Detenido" : (eventSubConnected() ? "Conectado y escuchando" : (socketConnected ? "Conectando suscripciones…" : "Desconectado / reconectando"));
+        String action = current == null
+                ? "<form method='post' action='/bot/link/start'><button type='submit'>Vincular ChainaMinecraftBot</button></form>"
+                : "<form method='post' action='/bot/eventsub/reconnect' style='display:inline'><button type='submit'>Reconectar EventSub</button></form> "
+                + "<form method='post' action='/bot/unlink' style='display:inline'><button class='danger' type='submit'>Desvincular bot</button></form>";
+        String page = """
+                <!doctype html><html lang="es"><head><meta charset="utf-8">
+                <title>ChainaMinecraftBot · ChainaBridge</title>
+                <style>body{font-family:sans-serif;background:#17101d;color:#eee;max-width:820px;margin:40px auto;padding:24px}button,.btn{display:inline-block;padding:11px 18px;background:#ff72b6;border:0;color:#180f1d;font-weight:bold;text-decoration:none;margin:6px 4px 6px 0}.danger{background:#ff8585}.box{background:#281b32;border:1px solid #5b3a70;padding:16px;margin:14px 0}.warn{color:#ffb6d8}.ok{color:#8dffbd}code{background:#281b32;padding:2px 5px}</style></head><body>
+                <h1>ChainaMinecraftBot</h1>
+                <p>Bot técnico de Twitch para escuchar eventos del chat de <b>@%s</b>. No usa un token OAuth de Chaina.</p>
+                <div class="box"><b>Cuenta:</b> <span class="%s">%s</span><br><b>EventSub:</b> %s<br><b>Estado:</b> %s</div>
+                %s
+                <div class="box"><b>Pruebas recibidas</b><br>Bits/Cheers: %d<br>Subs/resubs: %d<br>Regalos: %d<br><br><b>Último evento:</b> %s</div>
+                <p>Permisos solicitados al bot: <code>user:read:chat</code> y <code>user:bot</code>.</p>
+                <p>La cuenta <b>ChainaMinecraftBot</b> debe seguir siendo MOD de <b>@%s</b>.</p>
+                <p><a class="btn" href="/setup">Volver a configuración</a></p>
+                </body></html>
+                """.formatted(html(broadcasterSupplier.get()), statusClass, accountText, html(eventSubText), html(lastStatus), action,
+                bitsEvents.get(), subscriptionEvents.get(), giftEvents.get(), html(lastEvent), html(broadcasterSupplier.get()));
+        sendHtml(exchange, 200, page);
+    }
+
+    void handleLinkStart(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        String clientId = safe(clientIdSupplier.get());
+        if (clientId.isBlank()) {
+            sendHtml(exchange, 400, simplePage("Falta Client ID", "Configura primero el Client ID en /setup."));
+            return;
+        }
+        try {
+            DeviceStart device = startDeviceCode(clientId);
+            pending = new PendingBotLink(UUID.randomUUID().toString(), device.deviceCode(), device.userCode(),
+                    device.verificationUri(), System.currentTimeMillis() + device.expiresIn() * 1000L,
+                    Math.max(1, device.interval()), System.currentTimeMillis());
+            lastStatus = "Esperando autorización de ChainaMinecraftBot…";
+            String page = """
+                    <!doctype html><html lang="es"><head><meta charset="utf-8"><title>Autorizar ChainaMinecraftBot</title>
+                    <style>body{font-family:sans-serif;background:#17101d;color:#eee;max-width:760px;margin:40px auto;padding:24px}.box{background:#281b32;border:1px solid #ff72b6;padding:18px;margin:16px 0}.btn{display:inline-block;padding:12px 20px;background:#ff72b6;color:#180f1d;text-decoration:none;font-weight:bold}.code{font-size:28px;letter-spacing:3px;color:#8dffbd}.warn{color:#ffb6d8}</style></head><body>
+                    <h1>Autorizar ChainaMinecraftBot</h1>
+                    <p class="warn"><b>IMPORTANTE:</b> inicia sesión y autoriza únicamente la cuenta <b>ChainaMinecraftBot</b>. Si autorizas otra cuenta, ChainaBridge la rechazará y no guardará su token.</p>
+                    <div class="box"><div>Código:</div><div class="code">%s</div><br><a class="btn" target="_blank" rel="noopener" href="%s">ABRIR TWITCH Y AUTORIZAR</a></div>
+                    <p id="status">Esperando autorización…</p>
+                    <p>Esta página se actualizará automáticamente cuando Twitch confirme el bot.</p>
+                    <script>
+                    try{navigator.clipboard.writeText(%s);}catch(e){}
+                    setInterval(async()=>{try{const r=await fetch('/bot/status',{cache:'no-store'});const j=await r.json();document.getElementById('status').textContent=j.message||'Esperando…';if(j.linked){location.href='/bot';}}catch(e){}},2000);
+                    </script></body></html>
+                    """.formatted(html(device.userCode()), html(device.verificationUri()), jsString(device.userCode()));
+            sendHtml(exchange, 200, page);
+            System.out.println("[bot] Device authorization started. Authorize ONLY @ChainaMinecraftBot.");
+        } catch (Exception error) {
+            lastStatus = "No se pudo iniciar OAuth: " + safeError(error);
+            sendHtml(exchange, 502, simplePage("Error Twitch", html(lastStatus)));
+        }
+    }
+
+    void handleStatus(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "GET")) return;
+        JsonObject json = new JsonObject();
+        BotAccount current = account;
+        json.addProperty("linked", current != null);
+        json.addProperty("login", current == null ? "" : current.login());
+        json.addProperty("expected_login", EXPECTED_BOT_LOGIN);
+        json.addProperty("pending", pending != null);
+        json.addProperty("socket_connected", socketConnected);
+        json.addProperty("subscriptions_ready", subscriptionsReady);
+        json.addProperty("message", lastStatus);
+        json.addProperty("last_event", lastEvent);
+        json.addProperty("bits_events", bitsEvents.get());
+        json.addProperty("subscription_events", subscriptionEvents.get());
+        json.addProperty("gift_events", giftEvents.get());
+        byte[] bytes = GSON.toJson(json).getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+    }
+
+    void handleUnlink(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        pending = null;
+        BotAccount old = account;
+        account = null;
+        lastStatus = "Bot desvinculado de ChainaBridge.";
+        subscriptionsReady = false;
+        socketConnected = false;
+        eventSubSessionId = "";
+        WebSocket current = webSocket;
+        webSocket = null;
+        if (current != null) current.abort();
+        try {
+            if (old != null) revokeToken(old.accessToken());
+        } catch (Exception error) {
+            System.err.println("[bot] Could not revoke old bot token: " + safeError(error));
+        }
+        saveBotSafely();
+        redirect(exchange, "/bot");
+    }
+
+    void handleReconnect(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        if (account != null) {
+            WebSocket current = webSocket;
+            webSocket = null;
+            socketConnected = false;
+            subscriptionsReady = false;
+            eventSubSessionId = "";
+            if (current != null) current.abort();
+            scheduler.schedule(this::connectEventSubSafely, 1, TimeUnit.SECONDS);
+            lastStatus = "Reconexión EventSub solicitada.";
+        }
+        redirect(exchange, "/bot");
+    }
+
+    private void pollPendingSafely() {
+        try { pollPending(); }
+        catch (Throwable error) { System.err.println("[bot] OAuth poll error: " + safeError(error)); }
+    }
+
+    private void pollPending() throws Exception {
+        PendingBotLink link = pending;
+        if (link == null) return;
+        long now = System.currentTimeMillis();
+        if (now >= link.expiresAtMillis()) {
+            pending = null;
+            lastStatus = "El código de autorización caducó. Inicia la vinculación otra vez.";
+            return;
+        }
+        if (now < link.nextPollMillis()) return;
+        pending = link.withNextPoll(now + link.intervalSeconds() * 1000L);
+        try {
+            TokenExchange token = exchangeDeviceToken(link);
+            if (token == null) return;
+            ValidatedUser user = validateToken(token.accessToken());
+            if (!user.scopes().contains(SCOPE_READ_CHAT) || !user.scopes().contains(SCOPE_USER_BOT)) {
+                pending = null;
+                revokeToken(token.accessToken());
+                lastStatus = "Twitch no concedió user:read:chat + user:bot. Vuelve a autorizar.";
+                return;
+            }
+            if (!EXPECTED_BOT_LOGIN.equalsIgnoreCase(user.login())) {
+                pending = null;
+                revokeToken(token.accessToken());
+                lastStatus = "Cuenta incorrecta (@" + user.login() + "). Autoriza únicamente @ChainaMinecraftBot.";
