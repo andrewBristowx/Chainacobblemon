@@ -1,0 +1,68 @@
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.12+1.21.1
++mod_version=0.4.0-alpha.13+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+@@ -65,7 +65,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.12+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.13+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/progress/RankGroups.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/progress/RankGroups.java
+@@ -1,5 +1,8 @@
+ package com.andrewbristowx.chainacobblemon.progress;
+ 
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.LinkedHashSet;
+ import java.util.Locale;
+ import java.util.Set;
+ 
+@@ -12,12 +15,19 @@
+     public static final String MODERATOR = "moderator";
+     public static final String OWNERS = "owner";
+ 
+-    public static final Set<String> ALL = Set.of(DEFAULT, BASIC, VIP, DONATOR, MODERATOR, OWNERS);
+-    public static final Set<String> SUPPORTERS = Set.of(VIP, DONATOR);
+-    public static final Set<String> STAFF = Set.of(MODERATOR, OWNERS);
+-    public static final Set<String> PREMIUM = Set.of(VIP, DONATOR, MODERATOR, OWNERS);
++    // BASIC and DONATOR intentionally alias existing canonical LuckPerms groups.
++    // Build these sets through a de-duplicating helper so an alias can never crash
++    // class initialization with Set.of(...): duplicate element.
++    public static final Set<String> ALL = uniqueSet(DEFAULT, BASIC, VIP, DONATOR, MODERATOR, OWNERS);
++    public static final Set<String> SUPPORTERS = uniqueSet(VIP, DONATOR);
++    public static final Set<String> STAFF = uniqueSet(MODERATOR, OWNERS);
++    public static final Set<String> PREMIUM = uniqueSet(VIP, DONATOR, MODERATOR, OWNERS);
+ 
+     private RankGroups() { }
++
++    private static Set<String> uniqueSet(String... groups) {
++        return Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(groups)));
++    }
+ 
+     public static String normalize(String value) {
+         return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,9 @@
++# 0.4.0-alpha.13
++
++- Corrige el crash al entrar causado por aliases de rangos duplicados (`default`/`basic` y `vip`/`donator`) dentro de `Set.of(...)`.
++- Los conjuntos de rangos ahora se construyen con deduplicación segura para que un alias repetido nunca pueda tumbar el servidor al conectar un jugador.
++- Mantiene sin cambios LuckPerms alpha.12, TAB, Styled Chat, Twitch, stream bonuses y ChainaBridge 0.4.0-alpha.7.
++
+ # 0.4.0-alpha.12
+ 
+ - Corrige el bootstrap real de LuckPerms 5.4.140 en Java 21: todas las llamadas reflectivas pasan por interfaces públicas de la API oficial en lugar de implementaciones internas package-private (`NodeMapImpl`).
