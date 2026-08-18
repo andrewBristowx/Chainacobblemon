@@ -1,0 +1,255 @@
+diff -ruN bridge_nobot_pristine/INICIAR-CHAINABRIDGE.bat bridge_nobot_mod/INICIAR-CHAINABRIDGE.bat
+--- bridge_nobot_pristine/INICIAR-CHAINABRIDGE.bat	2026-08-18 05:39:37.000000000 +0000
++++ bridge_nobot_mod/INICIAR-CHAINABRIDGE.bat	2026-08-18 17:30:54.010575548 +0000
+@@ -1,9 +1,9 @@
+-@echo off
+-title ChainaBridge 0.4.0-alpha.5
+-cd /d "%~dp0"
+-java -jar ChainaBridge-0.4.0-alpha.5.jar
+-if errorlevel 1 (
+-  echo.
+-  echo ChainaBridge se cerro con un error. Comprueba que Java 21 este instalado.
+-  pause
+-)
++@echo off
++title ChainaBridge 0.4.0-alpha.6
++cd /d "%~dp0"
++java -jar ChainaBridge-0.4.0-alpha.6.jar
++if errorlevel 1 (
++  echo.
++  echo ChainaBridge se cerro con un error. Comprueba que Java 21 este instalado.
++  pause
++)
+diff -ruN bridge_nobot_pristine/README.md bridge_nobot_mod/README.md
+--- bridge_nobot_pristine/README.md	2026-08-18 05:39:37.000000000 +0000
++++ bridge_nobot_mod/README.md	2026-08-18 17:30:54.010419135 +0000
+@@ -1,45 +1,52 @@
+-# ChainaBridge 0.4.0-alpha.5
++# ChainaBridge 0.4.0-alpha.6
+ 
+-Bridge local para la integración real Twitch de Chainacobblemon.
++Bridge local para Chainacobblemon con persistencia Twitch cifrada y un listener EventSub separado para **ChainaMinecraftBot**.
+ 
+-## Seguridad de esta alpha
++## Lo que conserva de alpha.5
+ 
+-- Se enlaza **la cuenta Twitch del jugador**, no la cuenta de Chaina.
+-- Usa OAuth Device Code Flow en modo `Public`.
+-- Solicita únicamente `user:read:subscriptions`.
+-- No usa ni solicita Twitch Client Secret.
+-- No usa token OAuth de Chaina.
+-- Access/refresh tokens de los jugadores se guardan **cifrados con AES-256-GCM**.
+-- El refresh token rotado por Twitch se guarda inmediatamente con escritura atómica.
+-- ChainaBridge valida las sesiones al arrancar y periódicamente.
+-- Escucha únicamente en `127.0.0.1:8765` por defecto.
+-- Las respuestas están firmadas con Ed25519; la clave de firma no es una credencial Twitch.
+-
+-## Actualización desde alpha.4
+-
+-`0.4.0-alpha.4` mantenía la autorización únicamente en memoria. Por ello, después de cerrar alpha.4 e iniciar alpha.5 tendrás que **autorizar Twitch una última vez**. A partir de esa vinculación, alpha.5 conservará la sesión cifrada entre reinicios.
+-
+-Twitch puede obligar a autorizar otra vez si el usuario desconecta ChainaCobblemon desde sus conexiones, cambia credenciales/revoca la sesión, o si el refresh token de una aplicación pública caduca tras un periodo prolongado de inactividad.
+-
+-## Primer inicio / nueva vinculación
+-
+-1. Ejecuta `java -jar ChainaBridge-0.4.0-alpha.5.jar` con Java 21.
+-2. Si ya tienes `chainabridge.properties` de alpha.4, conservará tu Client ID y broadcaster automáticamente.
+-3. Si es una instalación nueva, abre `http://127.0.0.1:8765/setup` y pega únicamente el **Client ID público** de tu aplicación Twitch.
+-4. En Minecraft usa `/twitch` y `Vincular Twitch`.
+-5. Abre la URL de activación y autoriza tu propia cuenta Twitch.
+-6. Pulsa `Sincronizar`/`Actualizar` cuando termine.
+-7. Desde entonces puedes cerrar y volver a abrir ChainaBridge sin repetir normalmente la autorización.
++- Vinculación de cada jugador con Twitch Device Code Flow público.
++- Solo `user:read:subscriptions` para jugadores.
++- Sin Client Secret y sin token OAuth de Chaina.
++- Sesiones de jugadores cifradas con AES-256-GCM en `chainabridge-accounts.enc`.
++- Refresh tokens públicos rotados y guardados atómicamente.
++- `chainabridge-master.key` o `CHAINABRIDGE_MASTER_KEY` para la clave AES-256.
++
++## Nuevo: ChainaMinecraftBot + EventSub
++
++La cuenta técnica **ChainaMinecraftBot** se autoriza por separado y solicita únicamente:
++
++- `user:read:chat`
++- `user:bot`
++
++La cuenta debe ser moderadora de `chainavt`. No se solicita `channel:bot` porque la autorización de chat puede apoyarse en el estado MOD del bot en el canal. No se solicita `bits:read` ni `channel:read:subscriptions` en esta primera prueba.
++
++ChainaBridge abre una conexión EventSub WebSocket y se suscribe a:
++
++- `channel.chat.message`: detecta Cheers/Bits presentes en mensajes de chat.
++- `channel.chat.notification`: detecta avisos de `sub`, `resub`, `sub_gift` y `community_sub_gift`.
++
++Esta alpha **solo registra los eventos y contadores para validar Twitch**. Todavía no entrega recompensas dentro de Minecraft.
++
++## Cómo vincular el bot
++
++1. Mantén `ChainaMinecraftBot` como MOD de `chainavt`.
++2. Inicia `ChainaBridge-0.4.0-alpha.6.jar`.
++3. Abre `http://127.0.0.1:8765/bot`.
++4. Pulsa **Vincular ChainaMinecraftBot**.
++5. En Twitch, asegúrate de iniciar sesión como **ChainaMinecraftBot** y autoriza.
++6. ChainaBridge rechazará automáticamente una cuenta distinta.
++7. Al terminar, el panel debe mostrar EventSub conectado y en consola aparecerá `[eventsub] READY`.
+ 
+ ## Archivos locales
+ 
+-- `chainabridge.properties`: bind, puerto, Client ID público y broadcaster.
+-- `chainabridge-keys.json`: clave Ed25519 usada solo para firmar respuestas del bridge.
+-- `chainabridge-master.key`: clave local AES-256 para cifrar las sesiones. **No la compartas.**
+-- `chainabridge-accounts.enc`: sesiones Twitch cifradas; no contiene tokens en texto plano.
++- `chainabridge.properties`: Client ID público, canal, bind y puerto.
++- `chainabridge-keys.json`: clave Ed25519 para firmar respuestas del bridge.
++- `chainabridge-master.key`: clave AES-256 local; no compartir.
++- `chainabridge-accounts.enc`: sesiones cifradas de jugadores.
++- `chainabridge-bot.enc`: sesión cifrada de ChainaMinecraftBot.
+ 
+-Para un host dedicado se puede definir `CHAINABRIDGE_MASTER_KEY` como Base64 de 32 bytes y evitar depender del archivo `chainabridge-master.key`. En singleplayer, alpha.5 genera el archivo automáticamente.
++El bot usa la misma clave AES maestra pero un almacén y AAD separados, de modo que la persistencia de jugadores de alpha.5 no se modifica.
+ 
+-## Importante
++## Seguridad
+ 
+-Guarda juntos `chainabridge-master.key` y `chainabridge-accounts.enc` si haces una copia de seguridad. Si pierdes la clave, las sesiones cifradas no se pueden recuperar y los jugadores deberán volver a vincular Twitch. Nunca pegues un Client Secret en ChainaBridge.
++Nunca pegues un Client Secret, token de Chaina, `chainabridge-master.key`, `chainabridge-accounts.enc` o `chainabridge-bot.enc` en GitHub o en el chat.
+diff -ruN bridge_nobot_pristine/build.gradle bridge_nobot_mod/build.gradle
+--- bridge_nobot_pristine/build.gradle	2026-08-18 05:39:38.000000000 +0000
++++ bridge_nobot_mod/build.gradle	2026-08-18 17:30:54.010269773 +0000
+@@ -4,7 +4,7 @@
+ }
+ 
+ group = 'com.andrewbristowx.chainabridge'
+-version = '0.4.0-alpha.5'
++version = '0.4.0-alpha.6'
+ 
+ repositories {
+     mavenCentral()
+@@ -26,7 +26,7 @@
+ 
+ tasks.named('jar') {
+     archiveBaseName = 'ChainaBridge'
+-    archiveVersion = '0.4.0-alpha.5'
++    archiveVersion = '0.4.0-alpha.6'
+     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+     manifest {
+         attributes 'Main-Class': application.mainClass.get()
+diff -ruN bridge_nobot_pristine/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java bridge_nobot_mod/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java
+--- bridge_nobot_pristine/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java	2026-08-18 05:39:38.000000000 +0000
++++ bridge_nobot_mod/src/main/java/com/andrewbristowx/chainabridge/ChainaBridgeMain.java	2026-08-18 17:32:29.828560010 +0000
+@@ -47,7 +47,7 @@
+ import java.util.concurrent.TimeUnit;
+ 
+ /**
+- * ChainaBridge local 0.4.0-alpha.5.
++ * ChainaBridge local 0.4.0-alpha.6.
+  *
+  * Security model:
+  * - Twitch Device Code Flow in public-client mode: no client secret is required.
+@@ -60,7 +60,7 @@
+  */
+ public final class ChainaBridgeMain {
+     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+-    private static final String VERSION = "0.4.0-alpha.5";
++    private static final String VERSION = "0.4.0-alpha.6";
+     private static final String REQUIRED_SCOPE = "user:read:subscriptions";
+     private static final Path CONFIG_PATH = Path.of("chainabridge.properties");
+     private static final Path KEY_PATH = Path.of("chainabridge-keys.json");
+@@ -83,6 +83,7 @@
+     private final PrivateKey signingKey;
+     private final String publicKeyBase64;
+     private final byte[] storageKey;
++    private final BotEventSubService botEventSub;
+     private HttpServer server;
+ 
+     private ChainaBridgeMain() throws Exception {
+@@ -92,6 +93,8 @@
+         this.publicKeyBase64 = keys.publicKeyBase64();
+         this.storageKey = loadOrCreateStorageKey();
+         loadAccountsSafely();
++        this.botEventSub = new BotEventSubService(http, scheduler, storageKey,
++                () -> config.twitchClientId, () -> config.broadcasterLogin, () -> config.port);
+     }
+ 
+     public static void main(String[] args) throws Exception {
+@@ -100,6 +103,10 @@
+             bridge.selfTestEncryptedStore();
+             return;
+         }
++        if (java.util.Arrays.asList(args).contains("--self-test-bot-store")) {
++            bridge.botEventSub.selfTestEncryptedStore();
++            return;
++        }
+         bridge.start();
+     }
+ 
+@@ -115,11 +122,17 @@
+         server.createContext("/v1/link/unlink", this::handleUnlink);
+         server.createContext("/v1/player/status", this::handlePlayerStatus);
+         server.createContext("/v1/channel/status", this::handleChannelStatus);
++        server.createContext("/bot", botEventSub::handlePage);
++        server.createContext("/bot/link/start", botEventSub::handleLinkStart);
++        server.createContext("/bot/status", botEventSub::handleStatus);
++        server.createContext("/bot/unlink", botEventSub::handleUnlink);
++        server.createContext("/bot/eventsub/reconnect", botEventSub::handleReconnect);
+         server.start();
+ 
+         scheduler.scheduleWithFixedDelay(this::pollPendingSafely, 1, 1, TimeUnit.SECONDS);
+         scheduler.schedule(this::validatePersistedAccountsSafely, 2, TimeUnit.SECONDS);
+         scheduler.scheduleWithFixedDelay(this::validatePersistedAccountsSafely, 55, 55, TimeUnit.MINUTES);
++        botEventSub.start();
+         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ChainaBridge-Shutdown"));
+ 
+         System.out.println("============================================================");
+@@ -128,6 +141,8 @@
+         System.out.println(" Broadcaster: " + current.broadcasterLogin);
+         System.out.println(" Twitch token storage: AES-256-GCM ENCRYPTED DISK");
+         System.out.println(" Chaina OAuth token: NOT USED");
++        System.out.println(" Twitch bot: @ChainaMinecraftBot (EventSub chat listener)");
++        System.out.println(" Bot panel: http://127.0.0.1:" + current.port + "/bot");
+         System.out.println(" Public signing key: " + publicKeyBase64);
+         if (!current.configured()) {
+             System.out.println();
+@@ -140,6 +155,7 @@
+ 
+     private void stop() {
+         if (server != null) server.stop(0);
++        botEventSub.stop();
+         saveAccountsSafely();
+         scheduler.shutdownNow();
+         accounts.clear();
+@@ -154,6 +170,13 @@
+         payload.addProperty("configured", config.configured());
+         payload.addProperty("broadcaster", config.broadcasterLogin);
+         payload.addProperty("token_storage", "aes_256_gcm_disk");
++        payload.addProperty("bot_linked", botEventSub.linked());
++        payload.addProperty("bot_login", botEventSub.login());
++        payload.addProperty("eventsub_connected", botEventSub.eventSubConnected());
++        payload.addProperty("eventsub_bits_events", botEventSub.bitsEventCount());
++        payload.addProperty("eventsub_subscription_events", botEventSub.subscriptionEventCount());
++        payload.addProperty("eventsub_gift_events", botEventSub.giftEventCount());
++        payload.addProperty("eventsub_last_event", botEventSub.lastEventSummary());
+         sendEnvelope(exchange, 200, payload);
+     }
+ 
+@@ -181,9 +204,11 @@
+                 <button type="submit">Guardar configuración</button></form>
+                 <p>Después vuelve a Minecraft y pulsa <b>Vincular Twitch</b> otra vez.</p>
+                 <p>Tokens del jugador: <span class="ok">cifrados con AES-256-GCM</span>. La autorización se conserva entre reinicios.</p>
+-                <p>Si Twitch revoca la conexión o el refresh token público caduca por inactividad, el jugador deberá autorizar de nuevo.</p>
++                <p>Bot del canal: <a style="color:#ff72b6;font-weight:bold" href="/bot">configurar ChainaMinecraftBot / EventSub</a>.</p>
++                <p>El bot solicita solo <code>user:read:chat</code> y <code>user:bot</code>; la cuenta ChainaMinecraftBot debe ser MOD de @%s.</p>
++                <p>Si Twitch revoca la conexión o el refresh token público caduca por inactividad, el jugador o el bot deberán autorizar de nuevo.</p>
+                 </body></html>
+-                """.formatted(html(current.twitchClientId), html(current.broadcasterLogin));
++                """.formatted(html(current.twitchClientId), html(current.broadcasterLogin), html(current.broadcasterLogin));
+         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+         exchange.getResponseHeaders().set("Cache-Control", "no-store");
+@@ -204,6 +229,7 @@
+         next.save();
+         config = next;
+         broadcasterIds.clear();
++        botEventSub.onConfigChanged();
+         sendHtml(exchange, 200, "<html><body style='font-family:sans-serif;background:#17101d;color:#eee;padding:40px'><h2 style='color:#ff72b6'>Configuración guardada</h2><p>Ya puedes volver a Minecraft y pulsar <b>Vincular Twitch</b>.</p><p>No se guardó ningún Client Secret.</p></body></html>");
+         System.out.println("[setup] Twitch Client ID configured; broadcaster=" + broadcaster);
+     }
