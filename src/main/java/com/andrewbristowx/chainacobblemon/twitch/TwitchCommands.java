@@ -1,6 +1,7 @@
 package com.andrewbristowx.chainacobblemon.twitch;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -25,6 +26,16 @@ public final class TwitchCommands {
                 .then(literal("sync").executes(context -> playerAction(context.getSource(), service, "sync")))
                 .then(literal("desvincular").executes(context -> playerAction(context.getSource(), service, "unlink"))));
 
+        LiteralArgumentBuilder<ServerCommandSource> test = literal("test")
+                .requires(source -> source.hasPermissionLevel(2))
+                .then(literal("online").executes(context -> testChannel(context.getSource(), service, true)))
+                .then(literal("offline").executes(context -> testChannel(context.getSource(), service, false)))
+                .then(literal("nosub").executes(context -> testTier(context.getSource(), service, 0)))
+                .then(literal("sub")
+                        .then(literal("1").executes(context -> testTier(context.getSource(), service, 1)))
+                        .then(literal("2").executes(context -> testTier(context.getSource(), service, 2)))
+                        .then(literal("3").executes(context -> testTier(context.getSource(), service, 3))));
+
         dispatcher.register(literal("chaina")
                 .then(literal("twitch")
                         .executes(context -> playerAction(context.getSource(), service, "open"))
@@ -35,14 +46,7 @@ public final class TwitchCommands {
                             return 1;
                         }))
                         .then(literal("sync").executes(context -> playerAction(context.getSource(), service, "sync")))
-                        .then(literal("test").requires(source -> source.hasPermissionLevel(2))
-                                .then(literal("online").executes(context -> testChannel(context.getSource(), service, true)))
-                                .then(literal("offline").executes(context -> testChannel(context.getSource(), service, false)))
-                                .then(literal("nosub").executes(context -> testTier(context.getSource(), service, 0)))
-                                .then(literal("sub")
-                                        .then(literal("1").executes(context -> testTier(context.getSource(), service, 1)))
-                                        .then(literal("2").executes(context -> testTier(context.getSource(), service, 2)))
-                                        .then(literal("3").executes(context -> testTier(context.getSource(), service, 3))))))));
+                        .then(test)));
     }
 
     private static int playerAction(ServerCommandSource source, TwitchService service, String action) {
