@@ -61,6 +61,8 @@ jobs:
             > /tmp/040a9-stream-bonuses.patch
           cd /tmp/chainacobblemon
           patch -p1 < /tmp/040a9-stream-bonuses.patch
+          # Cobblemon Stats is an enum with Kotlin companion accessors from Java.
+          sed -i 's/Stats\.INSTANCE\.getPERMANENT()/Stats.Companion.getPERMANENT()/g' src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
 
       - name: Verify alpha.9 source contract
         run: |
@@ -78,6 +80,7 @@ jobs:
           grep -q 'stream-bonus-state.json' "$SERVICE"
           grep -q 'PokemonProperties.Companion.parse' "$SERVICE"
           grep -q 'pokemon.setIV' "$SERVICE"
+          grep -q 'Stats.Companion.getPERMANENT()' "$SERVICE"
           grep -q 'streamJackpotChance' src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
           grep -q 'streamBonusesActive' "$TWITCH"
           grep -q 'DIRECTO LEGENDARIO' "$TWITCH"
