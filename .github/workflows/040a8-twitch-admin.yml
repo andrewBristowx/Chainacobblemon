@@ -1,0 +1,115 @@
+name: Build Chainacobblemon 0.4.0-alpha.8 Twitch Admin
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q '0.4.0-alpha.5+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Restore validated alpha.6 onboarding
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+
+      - name: Restore validated alpha.7 direct link
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
+
+      - name: Apply alpha.8 Twitch admin patch
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a8_twitch_admin.patch"
+
+      - name: Verify admin source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          grep -q 'mod_version=0.4.0-alpha.8+1.21.1' gradle.properties
+          grep -q 'literal("admin")' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+          grep -q 'EntityArgumentType.player()' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+          grep -q 'admin_sync:' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+          grep -q 'admin_unlink:' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+          grep -q 'admin_prompt:' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+          grep -q 'player.hasPermissionLevel(2)' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'snapshot.adminView = true' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'vincular_directo' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+
+      - name: Compile and package alpha.8
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.8+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.8+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/alpha8-out
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.8+1.21.1.jar /tmp/alpha8-out/
+          cd /tmp/chainacobblemon
+          zip -qr /tmp/alpha8-out/Chainacobblemon-0.4.0-alpha.8-source.zip . -x 'build/*' '.gradle/*'
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5.jar" /tmp/alpha8-out/
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5-PACK.zip" /tmp/alpha8-out/
+          cat > /tmp/alpha8-out/README-ALPHA8.txt <<'EOF'
+          Chainacobblemon 0.4.0-alpha.8 + ChainaBridge 0.4.0-alpha.5
+
+          Player flow remains direct and panel-free:
+          - Unlinked player joins -> private AQUÍ prompt.
+          - AQUÍ -> Device Code Flow -> browser -> automatic link/rank.
+
+          Admin flow:
+          - /twitch opens the admin panel for yourself when permission level >= 2.
+          - /twitch admin <player> opens the admin panel for an online player.
+          - Buttons: Actualizar estado, Desvincular, Reenviar aviso.
+          - Server validates every admin action at permission level 2.
+
+          Keep using ChainaBridge 0.4.0-alpha.5 and preserve its encrypted local files.
+          EOF
+          cd /tmp/alpha8-out
+          sha256sum Chainacobblemon-0.4.0-alpha.8+1.21.1.jar Chainacobblemon-0.4.0-alpha.8-source.zip ChainaBridge-0.4.0-alpha.5.jar ChainaBridge-0.4.0-alpha.5-PACK.zip > SHA256SUMS-0.4.0-alpha.8.txt
+
+      - name: Upload alpha.8 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.8-Twitch-admin
+          path: /tmp/alpha8-out/*
+          if-no-files-found: error
+          retention-days: 90
