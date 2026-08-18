@@ -1,0 +1,66 @@
+                <style>body{font-family:sans-serif;background:#17101d;color:#eee;max-width:1250px;margin:30px auto;padding:20px}a{color:#ff72b6}.box{background:#281b32;border:1px solid #5b3a70;padding:16px;margin:14px 0}table{width:100%%;border-collapse:collapse}th,td{border-bottom:1px solid #4b3459;padding:8px;vertical-align:top;text-align:left}.response{max-width:390px}input,textarea,select{box-sizing:border-box;background:#1b1322;color:#fff;border:1px solid #76508b;padding:7px;margin:3px;width:100%%}textarea{min-height:70px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.btn,button{display:inline-block;background:#ff72b6;color:#180f1d;border:0;padding:9px 14px;font-weight:bold;text-decoration:none;margin:3px}.danger{background:#ff8585}.muted{color:#c9b9d0}code{background:#17101d;padding:2px 5px}</style></head><body>
+                <h1>Comandos de ChainaMinecraftBot</h1>
+                <p>Estos cambios se aplican sin recompilar ni reiniciar. También puedes editar <code>chainabridge-commands.json</code> y <code>chainabridge-automessages.json</code>; ChainaBridge los recarga automáticamente.</p>
+                <p><a class='btn' href='/bot'>← Volver al bot</a></p>
+                <div class='box'><b>Estado</b><br>Comandos: %d (%d activos) · Recordatorios: %d<br>Último comando: %s<br>Último automático: %s</div>
+                <h2>Comandos</h2><table><tr><th>Comando</th><th>Alias</th><th>Activo</th><th>Acceso</th><th>Cooldown</th><th>Respuesta</th><th>Acciones</th></tr>%s</table>
+                <h3>Nuevo comando</h3>%s
+                <h2>Mensajes automáticos</h2><table><tr><th>ID</th><th>Activo</th><th>Intervalo</th><th>Solo directo</th><th>Actividad reciente</th><th>Mensaje</th><th>Acciones</th></tr>%s</table>
+                <h3>Nuevo recordatorio</h3>%s
+                <form method='post' action='/bot/commands/reload'><button type='submit'>Recargar archivos ahora</button></form>
+                <p class='muted'>Variables: <code>{user}</code>, <code>{channel}</code>, <code>{command}</code> y las variables personalizadas del JSON.</p>
+                </body></html>
+                """.formatted(commands.size(), enabledCommandCount(), autoMessages.size(), html(lastCommandEvent), html(lastAutoEvent), commandRows, commandForm(null), autoRows, autoForm(null));
+        sendHtml(exchange, 200, page);
+    }
+
+    void handleSaveCommand(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        Map<String, String> form = parseForm(readBody(exchange));
+        String original = normalizeCommand(form.get("original"));
+        String command = normalizeCommand(form.get("command"));
+        if (command.isBlank()) { sendHtml(exchange, 400, simplePage("Comando inválido", "Debe comenzar con ! y contener solo letras, números, _ o -.")); return; }
+        String response = safe(form.get("response")).trim();
+        if (response.isBlank()) { sendHtml(exchange, 400, simplePage("Respuesta vacía", "Escribe una respuesta para el comando.")); return; }
+        List<String> aliases = normalizeAliases(form.get("aliases"), command);
+        int cooldown = clampInt(form.get("cooldown"), 0, 3600, 30);
+        boolean enabled = form.containsKey("enabled");
+        String access = normalizeAccess(form.get("access"));
+        List<CommandDef> next = new ArrayList<>(commands);
+        if (!original.isBlank()) next.removeIf(def -> def.command().equalsIgnoreCase(original));
+        next.removeIf(def -> def.command().equalsIgnoreCase(command));
+        next.add(new CommandDef(command, aliases, enabled, response, cooldown, access));
+        commands = List.copyOf(next);
+        saveCommands();
+        redirect(exchange, "/bot/commands");
+    }
+
+    void handleDeleteCommand(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        Map<String, String> form = parseForm(readBody(exchange));
+        String command = normalizeCommand(form.get("command"));
+        List<CommandDef> next = new ArrayList<>(commands);
+        next.removeIf(def -> def.command().equalsIgnoreCase(command));
+        commands = List.copyOf(next);
+        saveCommands();
+        redirect(exchange, "/bot/commands");
+    }
+
+    void handleSaveAuto(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "POST")) return;
+        Map<String, String> form = parseForm(readBody(exchange));
+        String original = normalizeId(form.get("original"));
+        String id = normalizeId(form.get("id"));
+        if (id.isBlank()) { sendHtml(exchange, 400, simplePage("ID inválido", "Usa letras, números, _ o -.")); return; }
+        String message = safe(form.get("message")).trim();
+        if (message.isBlank()) { sendHtml(exchange, 400, simplePage("Mensaje vacío", "Escribe el recordatorio.")); return; }
+        boolean enabled = form.containsKey("enabled");
+        boolean onlyLive = form.containsKey("only_live");
+        int interval = clampInt(form.get("interval"), 1, 1440, 30);
+        int recent = clampInt(form.get("recent"), 0, 1440, 10);
+        List<AutoMessageDef> next = new ArrayList<>(autoMessages);
+        if (!original.isBlank()) next.removeIf(def -> def.id().equalsIgnoreCase(original));
+        next.removeIf(def -> def.id().equalsIgnoreCase(id));
+        next.add(new AutoMessageDef(id, enabled, message, interval, onlyLive, recent));
+        autoMessages = List.copyOf(next);
+        autoLastSent.put(id, System.currentTimeMillis());
