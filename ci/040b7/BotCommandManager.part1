@@ -1,0 +1,105 @@
+                System.err.println("[bot-command] send failed for " + command.command() + ": " + safeError(error));
+            }
+        });
+    }
+
+    private CommandDef findCommand(String trigger) {
+        for (CommandDef command : commands) {
+            if (command.command().equalsIgnoreCase(trigger)) return command;
+            for (String alias : command.aliases()) if (alias.equalsIgnoreCase(trigger)) return command;
+        }
+        return null;
+    }
+
+    private boolean allowed(String access, JsonObject event) {
+        String mode = safe(access).toLowerCase(Locale.ROOT);
+        if (mode.isBlank() || "everyone".equals(mode)) return true;
+        boolean mod = hasBadge(event, "moderator") || hasBadge(event, "broadcaster") || hasBadge(event, "staff");
+        boolean sub = hasBadge(event, "subscriber") || hasBadge(event, "founder");
+        return switch (mode) {
+            case "mods" -> mod;
+            case "subs" -> sub || mod;
+            default -> true;
+        };
+    }
+
+    private static boolean hasBadge(JsonObject event, String badge) {
+        JsonArray array = event.has("badges") && event.get("badges").isJsonArray() ? event.getAsJsonArray("badges") : new JsonArray();
+        for (JsonElement element : array) {
+            if (!element.isJsonObject()) continue;
+            if (badge.equalsIgnoreCase(string(element.getAsJsonObject(), "set_id"))) return true;
+        }
+        return false;
+    }
+
+    private void tickAutoMessagesSafely() {
+        try { tickAutoMessages(); }
+        catch (Throwable error) { System.err.println("[bot-auto] tick failed: " + safeError(error)); }
+    }
+
+    private void tickAutoMessages() {
+        if (!Boolean.TRUE.equals(writeReadySupplier.get())) return;
+        long now = System.currentTimeMillis();
+        for (AutoMessageDef def : autoMessages) {
+            if (!def.enabled()) continue;
+            long intervalMillis = Math.max(1, def.intervalMinutes()) * 60_000L;
+            long last = autoLastSent.getOrDefault(def.id(), now);
+            if (now - last < intervalMillis) continue;
+            if (def.requireRecentChatMinutes() > 0) {
+                long recentMillis = def.requireRecentChatMinutes() * 60_000L;
+                if (lastHumanChatMillis <= 0 || now - lastHumanChatMillis > recentMillis) continue;
+            }
+            if (def.onlyWhenLive()) {
+                try {
+                    if (!liveChecker.isLive()) continue;
+                } catch (Exception error) {
+                    System.err.println("[bot-auto] live check failed: " + safeError(error));
+                    continue;
+                }
+            }
+            autoLastSent.put(def.id(), now);
+            String message = expand(def.message(), "", "");
+            Thread.startVirtualThread(() -> {
+                try {
+                    sender.send(message);
+                    lastAutoEvent = def.id() + " enviado · " + Instant.now();
+                    System.out.println("[bot-auto] " + def.id() + " -> " + message);
+                } catch (Exception error) {
+                    lastAutoEvent = def.id() + " falló: " + safeError(error);
+                    System.err.println("[bot-auto] send failed for " + def.id() + ": " + safeError(error));
+                }
+            });
+        }
+    }
+
+    private String expand(String input, String user, String command) {
+        String out = safe(input)
+                .replace("{user}", safe(user))
+                .replace("{channel}", safe(broadcasterSupplier.get()))
+                .replace("{command}", safe(command));
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            out = out.replace("{" + entry.getKey() + "}", entry.getValue());
+        }
+        return out.length() <= 480 ? out : out.substring(0, 477) + "…";
+    }
+
+    void handlePage(HttpExchange exchange) throws IOException {
+        if (!method(exchange, "GET")) return;
+        StringBuilder commandRows = new StringBuilder();
+        for (CommandDef def : commands) {
+            commandRows.append("<tr><td><code>").append(html(def.command())).append("</code></td><td>")
+                    .append(html(String.join(", ", def.aliases()))).append("</td><td>")
+                    .append(def.enabled() ? "Sí" : "No").append("</td><td>")
+                    .append(html(accessLabel(def.access()))).append("</td><td>")
+                    .append(def.cooldownSeconds()).append("s</td><td class='response'>").append(html(def.response())).append("</td><td>")
+                    .append(editCommandForm(def)).append(deleteForm("/bot/commands/delete", "command", def.command())).append("</td></tr>");
+        }
+        StringBuilder autoRows = new StringBuilder();
+        for (AutoMessageDef def : autoMessages) {
+            autoRows.append("<tr><td><code>").append(html(def.id())).append("</code></td><td>")
+                    .append(def.enabled() ? "Sí" : "No").append("</td><td>").append(def.intervalMinutes()).append(" min</td><td>")
+                    .append(def.onlyWhenLive() ? "Sí" : "No").append("</td><td>").append(def.requireRecentChatMinutes()).append(" min</td><td class='response'>")
+                    .append(html(def.message())).append("</td><td>").append(editAutoForm(def)).append(deleteForm("/bot/automessages/delete", "id", def.id())).append("</td></tr>");
+        }
+        String page = """
+                <!doctype html><html lang='es'><head><meta charset='utf-8'><title>Comandos · ChainaMinecraftBot</title>
