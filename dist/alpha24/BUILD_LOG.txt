@@ -22,66 +22,34 @@ duplicate input class net/fabricmc/fabric/mixin/tag/package-info, from /home/run
 > Task :clean
 
 > Task :compileJava
-/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:240: error: cannot access ResourceLocation
-            PokeBall ball = PokeBalls.getPokeBall(session.ballId);
-                                     ^
-  class file for net.minecraft.resources.ResourceLocation not found
-/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:241: error: incompatible types: Identifier cannot be converted to ResourceLocation
-            if (ball == null) ball = PokeBalls.getPokeBall(Identifier.of("cobblemon", "poke_ball"));
-                                                                        ^
-/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:251: error: cannot access EntityType
-            EmptyPokeBallEntity captureEntity = new EmptyPokeBallEntity(ball, player.getServerWorld(), player, CobblemonEntities.EMPTY_POKEBALL);
-                                                                                                                                ^
-  class file for net.minecraft.world.entity.EntityType not found
-/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:251: error: cannot access Level
-            EmptyPokeBallEntity captureEntity = new EmptyPokeBallEntity(ball, player.getServerWorld(), player, CobblemonEntities.EMPTY_POKEBALL);
-                                                ^
-  class file for net.minecraft.world.level.Level not found
-/tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:252: error: cannot access ServerPlayer
-            CobblemonEvents.POKEMON_CAPTURED.post(new PokemonCapturedEvent(session.pokemon, player, captureEntity));
-                                                  ^
-  class file for net.minecraft.server.level.ServerPlayer not found
 Note: /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/registry/ModRegistries.java uses or overrides a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
-Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
-5 errors
 
-> Task :compileJava FAILED
+> Task :processResources
+> Task :classes
+
+> Task :compileClientJava
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :processClientResources
+> Task :jar
+> Task :processIncludeJars
+> Task :sourcesJar
+> Task :validateAccessWidener NO-SOURCE
+> Task :check
+> Task :remapJar
+> Task :remapSourcesJar
+> Task :assemble
+> Task :build
 
 [Incubating] Problems report is available at: file:///tmp/chainacobblemon/build/reports/problems/problems-report.html
 
-FAILURE: Build failed with an exception.
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
 
-* What went wrong:
-Execution failed for task ':compileJava' (registered by plugin class 'org.gradle.api.plugins.JavaBasePlugin').
-> Compilation failed; see the compiler output below.
-  Note: /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/registry/ModRegistries.java uses or overrides a deprecated API.
-  Note: Recompile with -Xlint:deprecation for details.
-  /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:241: error: incompatible types: Identifier cannot be converted to ResourceLocation
-              if (ball == null) ball = PokeBalls.getPokeBall(Identifier.of("cobblemon", "poke_ball"));
-                                                                          ^
-  /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:240: error: cannot access ResourceLocation
-              PokeBall ball = PokeBalls.getPokeBall(session.ballId);
-                                       ^
-    class file for net.minecraft.resources.ResourceLocation not found
-  /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:251: error: cannot access EntityType
-              EmptyPokeBallEntity captureEntity = new EmptyPokeBallEntity(ball, player.getServerWorld(), player, CobblemonEntities.EMPTY_POKEBALL);
-                                                                                                                                  ^
-    class file for net.minecraft.world.entity.EntityType not found
-  /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:251: error: cannot access Level
-              EmptyPokeBallEntity captureEntity = new EmptyPokeBallEntity(ball, player.getServerWorld(), player, CobblemonEntities.EMPTY_POKEBALL);
-                                                  ^
-    class file for net.minecraft.world.level.Level not found
-  /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java:252: error: cannot access ServerPlayer
-              CobblemonEvents.POKEMON_CAPTURED.post(new PokemonCapturedEvent(session.pokemon, player, captureEntity));
-                                                    ^
-    class file for net.minecraft.server.level.ServerPlayer not found
-  Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
-  5 errors
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
 
-* Try:
-> Check your code and dependencies to fix the compilation error(s)
-> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-BUILD FAILED in 47s
-2 actionable tasks: 2 executed
+BUILD SUCCESSFUL in 1m 28s
+10 actionable tasks: 10 executed

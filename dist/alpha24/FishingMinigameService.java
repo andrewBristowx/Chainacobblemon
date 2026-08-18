@@ -5,15 +5,10 @@ import com.andrewbristowx.chainacobblemon.data.PlayerData;
 import com.andrewbristowx.chainacobblemon.gacha.GachaTier;
 import com.andrewbristowx.chainacobblemon.gacha.catalog.PokemonCatalogEntry;
 import com.cobblemon.mod.common.Cobblemon;
-import com.cobblemon.mod.common.CobblemonEntities;
 import com.cobblemon.mod.common.api.events.CobblemonEvents;
 import com.cobblemon.mod.common.api.events.fishing.BobberSpawnPokemonEvent;
 import com.cobblemon.mod.common.api.events.fishing.PokerodReelEvent;
-import com.cobblemon.mod.common.api.events.pokemon.PokemonCapturedEvent;
-import com.cobblemon.mod.common.api.pokeball.PokeBalls;
 import com.cobblemon.mod.common.api.storage.party.PlayerPartyStore;
-import com.cobblemon.mod.common.entity.pokeball.EmptyPokeBallEntity;
-import com.cobblemon.mod.common.pokeball.PokeBall;
 import com.cobblemon.mod.common.pokemon.Pokemon;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.entity.Entity;
@@ -237,24 +232,27 @@ public final class FishingMinigameService {
     private static void succeed(ServerPlayerEntity player, Session session) {
         if (!SESSIONS.remove(player.getUuid(), session)) return;
         try {
-            PokeBall ball = PokeBalls.getPokeBall(session.ballId);
-            if (ball == null) ball = PokeBalls.getPokeBall(Identifier.of("cobblemon", "poke_ball"));
+            // Cobblemon 1.7.3 publishes several API signatures using Mojmap Minecraft classes while this
+            // Fabric project compiles against Yarn. Resolve the ball and capture event reflectively so the
+            // exact fished Pokemon can still follow Cobblemon's normal storage/event path at runtime.
+            Object ball = resolveBall(session.ballId);
             if (ball == null) throw new IllegalStateException("Cobblemon poke_ball registry entry unavailable");
 
-            session.pokemon.setCaughtBall(ball);
+            setCaughtBall(session.pokemon, ball);
             applyCaptureEffects(ball, player, session.pokemon);
             PlayerPartyStore party = party(player);
-            party.add(session.pokemon);
+            party.add(session.pokemon); // Cobblemon's PlayerPartyStore forwards overflow to the player's PC.
 
-            // Provide a genuine PokemonCapturedEvent so Chaina progression/jobs/pass and other Cobblemon-aware
-            // listeners see this as a normal capture even though the skill minigame guaranteed the outcome.
-            EmptyPokeBallEntity captureEntity = new EmptyPokeBallEntity(ball, player.getServerWorld(), player, CobblemonEntities.EMPTY_POKEBALL);
-            CobblemonEvents.POKEMON_CAPTURED.post(new PokemonCapturedEvent(session.pokemon, player, captureEntity));
+            // Post a genuine PokemonCapturedEvent using runtime classes. This keeps missions, jobs, pass,
+            // Safari/Fishing rankings and third-party Cobblemon capture listeners compatible without exposing
+            // Mojmap-only constructor signatures to javac.
+            postPokemonCapturedEvent(player, session.pokemon, ball);
 
             PokemonEventMetrics.Result result = PokemonEventMetrics.score(session.pokemon, true);
             String detail = result.compactDetail();
             player.sendMessage(Text.literal("§b🎣 ¡PESCA CONSEGUIDA! §f" + result.displayName() + " §7· §e" + result.score() + " pts"), false);
-            player.sendMessage(Text.literal("§7" + detail + " §8· §d" + prettyBall(session.ballId.getPath()) + "§7 (" + session.tuning.label + ")"), false);
+            player.sendMessage(Text.literal("§7" + detail + " §8· §d" + prettyRod(session.rodId.getPath())
+                    + " §7→ §d" + prettyBall(session.ballId.getPath()) + " §7(" + session.tuning.label + ")"), false);
             EventNetworking.openFishing(player, snapshot(session, true, true, result.score(), detail));
             Chainacobblemon.LOGGER.info("Fishing minigame success: player={} pokemon={} ball={} score={}",
                     player.getName().getString(), session.speciesId, session.ballId, result.score());
@@ -281,12 +279,41 @@ public final class FishingMinigameService {
         throw new NoSuchMethodException("Compatible Cobblemon getParty method not found");
     }
 
-    private static void applyCaptureEffects(PokeBall ball, ServerPlayerEntity player, Pokemon pokemon) {
+    private static Object resolveBall(Identifier ballId) throws ReflectiveOperationException {
+        String path = ballId == null ? "poke_ball" : ballId.getPath();
+        String fieldName = path.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9_]", "_");
+        Class<?> pokeBallsClass = Class.forName("com.cobblemon.mod.common.api.pokeball.PokeBalls");
+        Object instance = null;
+        try { instance = pokeBallsClass.getField("INSTANCE").get(null); } catch (ReflectiveOperationException ignored) { }
         try {
-            for (Object effect : ball.getEffects()) {
+            java.lang.reflect.Field field = pokeBallsClass.getField(fieldName);
+            return java.lang.reflect.Modifier.isStatic(field.getModifiers()) ? field.get(null) : field.get(instance);
+        } catch (NoSuchFieldException missing) {
+            java.lang.reflect.Field fallback = pokeBallsClass.getField("POKE_BALL");
+            return java.lang.reflect.Modifier.isStatic(fallback.getModifiers()) ? fallback.get(null) : fallback.get(instance);
+        }
+    }
+
+    private static void setCaughtBall(Pokemon pokemon, Object ball) throws ReflectiveOperationException {
+        for (Method method : pokemon.getClass().getMethods()) {
+            if (!method.getName().equals("setCaughtBall") || method.getParameterCount() != 1) continue;
+            if (!method.getParameterTypes()[0].isInstance(ball)) continue;
+            method.invoke(pokemon, ball);
+            return;
+        }
+        throw new NoSuchMethodException("Pokemon#setCaughtBall compatible with resolved PokeBall was not found");
+    }
+
+    private static void applyCaptureEffects(Object ball, ServerPlayerEntity player, Pokemon pokemon) {
+        try {
+            Object effectsValue = reflected(ball, "getEffects");
+            if (!(effectsValue instanceof Iterable<?> effects)) return;
+            for (Object effect : effects) {
                 if (effect == null) continue;
                 for (Method method : effect.getClass().getMethods()) {
                     if (!method.getName().equals("apply") || method.getParameterCount() != 2) continue;
+                    Class<?>[] types = method.getParameterTypes();
+                    if (!types[0].isInstance(player) || !types[1].isInstance(pokemon)) continue;
                     try {
                         method.invoke(effect, player, pokemon);
                         break;
@@ -296,6 +323,44 @@ public final class FishingMinigameService {
         } catch (RuntimeException exception) {
             Chainacobblemon.LOGGER.debug("Could not apply fishing ball capture effects: {}", exception.toString());
         }
+    }
+
+    private static void postPokemonCapturedEvent(ServerPlayerEntity player, Pokemon pokemon, Object ball)
+            throws ReflectiveOperationException {
+        Class<?> entitiesClass = Class.forName("com.cobblemon.mod.common.CobblemonEntities");
+        Object emptyType = entitiesClass.getField("EMPTY_POKEBALL").get(null);
+        Class<?> ballEntityClass = Class.forName("com.cobblemon.mod.common.entity.pokeball.EmptyPokeBallEntity");
+        Object captureEntity = null;
+        for (java.lang.reflect.Constructor<?> constructor : ballEntityClass.getConstructors()) {
+            Class<?>[] types = constructor.getParameterTypes();
+            if (types.length != 4) continue;
+            if (!types[0].isInstance(ball)) continue;
+            if (!types[1].isInstance(player.getServerWorld())) continue;
+            if (!types[2].isInstance(player)) continue;
+            if (!types[3].isInstance(emptyType)) continue;
+            captureEntity = constructor.newInstance(ball, player.getServerWorld(), player, emptyType);
+            break;
+        }
+        if (captureEntity == null) throw new NoSuchMethodException("Compatible EmptyPokeBallEntity constructor not found");
+
+        Class<?> eventClass = Class.forName("com.cobblemon.mod.common.api.events.pokemon.PokemonCapturedEvent");
+        Object captureEvent = null;
+        for (java.lang.reflect.Constructor<?> constructor : eventClass.getConstructors()) {
+            Class<?>[] types = constructor.getParameterTypes();
+            if (types.length != 3) continue;
+            if (!types[0].isInstance(pokemon) || !types[1].isInstance(player) || !types[2].isInstance(captureEntity)) continue;
+            captureEvent = constructor.newInstance(pokemon, player, captureEntity);
+            break;
+        }
+        if (captureEvent == null) throw new NoSuchMethodException("Compatible PokemonCapturedEvent constructor not found");
+
+        Object observable = CobblemonEvents.class.getField("POKEMON_CAPTURED").get(null);
+        for (Method method : observable.getClass().getMethods()) {
+            if (!method.getName().equals("post") || method.getParameterCount() != 1) continue;
+            method.invoke(observable, captureEvent);
+            return;
+        }
+        throw new NoSuchMethodException("Cobblemon POKEMON_CAPTURED#post method not found");
     }
 
     private static BallTuning tuning(ServerPlayerEntity player, Pokemon pokemon, PokemonCatalogEntry entry, Identifier ballId) {
