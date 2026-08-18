@@ -73,10 +73,29 @@ public final class TwitchScreen extends Screen {
         client.keyboard.setClipboard(streamUrl());
     }
 
+    /**
+     * Minecraft 1.21.1 routes normal screen backgrounds through applyBlur().
+     * TwitchScreen owns its background completely, so block every vanilla path that
+     * could re-apply the blur after our custom UI has started rendering.
+     */
+    @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // Intentionally empty. render() draws our non-blurred dim layer instead.
+    }
+
+    @Override
+    public void renderInGameBackground(DrawContext context) {
+        // Intentionally empty. Avoid a second vanilla in-world background pass.
+    }
+
+    @Override
+    protected void applyBlur(float delta) {
+        // Intentionally empty. This screen must never activate the vanilla blur shader.
+    }
+
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Do not call renderBackground(): in 1.21.1 it applies the blurred menu background.
-        // Keep the world readable and only dim it very slightly behind our own panel.
+        // Custom background only: translucent darkening, never blur.
         context.fill(0, 0, width, height, 0x22000000);
 
         int panelW = Math.min(390, width - 30);
