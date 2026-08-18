@@ -6,7 +6,6 @@ import com.andrewbristowx.chainacobblemon.gacha.GachaTier;
 import com.andrewbristowx.chainacobblemon.gacha.catalog.PokemonCatalogEntry;
 import com.cobblemon.mod.common.Cobblemon;
 import com.cobblemon.mod.common.api.events.CobblemonEvents;
-import com.cobblemon.mod.common.api.events.battles.BattleStartedPreEvent;
 import com.cobblemon.mod.common.api.events.fishing.BobberSpawnPokemonEvent;
 import com.cobblemon.mod.common.api.events.fishing.PokerodReelEvent;
 import com.cobblemon.mod.common.api.storage.party.PlayerPartyStore;
@@ -52,7 +51,7 @@ public final class FishingMinigameService {
     public static void initialize() {
         CobblemonEvents.POKEROD_REEL.subscribe((Consumer<PokerodReelEvent>) FishingMinigameService::onReel);
         CobblemonEvents.BOBBER_SPAWN_POKEMON_POST.subscribe((Consumer<BobberSpawnPokemonEvent.Post>) FishingMinigameService::onPokemonSpawned);
-        CobblemonEvents.BATTLE_STARTED_PRE.subscribe((Consumer<BattleStartedPreEvent>) FishingMinigameService::onBattleStarted);
+        subscribeBattleSuppression();
         ServerTickEvents.END_SERVER_TICK.register(FishingMinigameService::tick);
         Chainacobblemon.LOGGER.info("Chaina fishing minigame initialized for Cobblemon Poké Rods");
     }
@@ -80,7 +79,23 @@ public final class FishingMinigameService {
         BATTLE_SUPPRESSION_UNTIL.remove(playerId);
     }
 
-    private static void onBattleStarted(BattleStartedPreEvent event) {
+    private static void subscribeBattleSuppression() {
+        try {
+            Object observable = CobblemonEvents.class.getField("BATTLE_STARTED_PRE").get(null);
+            Consumer<Object> handler = FishingMinigameService::onBattleStarted;
+            for (Method method : observable.getClass().getMethods()) {
+                if (!method.getName().equals("subscribe") || method.getParameterCount() != 1) continue;
+                if (!method.getParameterTypes()[0].isAssignableFrom(handler.getClass())) continue;
+                method.invoke(observable, handler);
+                return;
+            }
+            throw new NoSuchMethodException("Compatible BATTLE_STARTED_PRE#subscribe(Consumer) method not found");
+        } catch (ReflectiveOperationException exception) {
+            Chainacobblemon.LOGGER.error("Could not subscribe Chaina fishing battle suppression", exception);
+        }
+    }
+
+    private static void onBattleStarted(Object event) {
         try {
             Object battle = reflected(event, "getBattle");
             Object playerIdsValue = reflected(battle, "getPlayerUUIDs");
@@ -88,7 +103,7 @@ public final class FishingMinigameService {
             long now = System.currentTimeMillis();
             for (Object value : playerIds) {
                 if (!(value instanceof UUID playerId) || !shouldSuppressBattle(playerId, now)) continue;
-                event.cancel();
+                if (!cancelEvent(event)) return;
                 Session session = SESSIONS.get(playerId);
                 Chainacobblemon.LOGGER.info("Canceled Cobblemon auto-battle owned by Chaina fishing: player={} session={} pokemon={}",
                         playerId, session == null ? "grace" : session.id, session == null ? "unknown" : session.speciesId);
@@ -96,6 +111,18 @@ public final class FishingMinigameService {
             }
         } catch (RuntimeException exception) {
             Chainacobblemon.LOGGER.warn("Could not inspect Cobblemon battle start for fishing suppression: {}", exception.toString());
+        }
+    }
+
+    private static boolean cancelEvent(Object event) {
+        if (event == null) return false;
+        try {
+            Method cancel = event.getClass().getMethod("cancel");
+            cancel.invoke(event);
+            return true;
+        } catch (ReflectiveOperationException exception) {
+            Chainacobblemon.LOGGER.warn("Could not cancel Cobblemon fishing auto-battle: {}", exception.toString());
+            return false;
         }
     }
 
