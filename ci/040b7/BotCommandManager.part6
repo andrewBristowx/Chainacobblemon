@@ -1,0 +1,5 @@
+    private static String html(String text){return safe(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;");}
+
+    private record CommandDef(String command,List<String> aliases,boolean enabled,String response,int cooldownSeconds,String access) {}
+    private record AutoMessageDef(String id,boolean enabled,String message,int intervalMinutes,boolean onlyWhenLive,int requireRecentChatMinutes) {}
+}
