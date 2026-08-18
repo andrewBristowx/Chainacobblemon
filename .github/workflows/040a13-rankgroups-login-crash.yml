@@ -1,0 +1,177 @@
+name: Build Chainacobblemon 0.4.0-alpha.13 RankGroups Login Crash Fix
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+
+      - name: Restore validated alpha.6-alpha.8
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
+          for p in "$GITHUB_WORKSPACE"/ci/040a8/*.patch; do patch -p1 < "$p"; done
+
+      - name: Restore validated alpha.9 stream bonuses
+        run: |
+          set -euxo pipefail
+          cat \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part0" \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part1" \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part2" \
+            > /tmp/040a9.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a9.patch
+          sed -i 's/Stats\.INSTANCE\.getPERMANENT()/Stats.Companion.getPERMANENT()/g' \
+            src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
+
+      - name: Restore validated alpha.10 Styled Player List
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a10_styled_player_list.patch"
+
+      - name: Restore validated alpha.11 TAB ranks and chat
+        run: |
+          set -euxo pipefail
+          cat \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part0" \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part1" \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part2" \
+            > /tmp/040a11.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a11.patch
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a11/alpha11-fix-import.patch"
+
+      - name: Restore validated alpha.12 LuckPerms Java 21 fix
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a12_luckperms_public_api.patch"
+
+      - name: Apply alpha.13 RankGroups login crash fix
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a13_rankgroups_duplicate_fix.patch"
+
+      - name: Verify alpha.13 source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          RANK=src/main/java/com/andrewbristowx/chainacobblemon/progress/RankGroups.java
+          MAIN=src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+          grep -q 'mod_version=0.4.0-alpha.13+1.21.1' gradle.properties
+          grep -q '0.4.0-alpha.13+1.21.1' "$MAIN"
+          grep -q 'uniqueSet(DEFAULT, BASIC, VIP, DONATOR, MODERATOR, OWNERS)' "$RANK"
+          grep -q 'new LinkedHashSet' "$RANK"
+          ! grep -q 'Set.of(DEFAULT, BASIC' "$RANK"
+          ! grep -q 'Set.of(VIP, DONATOR)' "$RANK"
+
+      - name: Compile and package alpha.13
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Runtime smoke test RankGroups aliases
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          cat > /tmp/RankGroupsSmoke.java <<'EOF'
+          import com.andrewbristowx.chainacobblemon.progress.RankGroups;
+          import com.andrewbristowx.chainacobblemon.progress.JobLimitRules;
+          import java.util.List;
+          import java.util.Set;
+
+          public class RankGroupsSmoke {
+              public static void main(String[] args) {
+                  if (!RankGroups.ALL.equals(Set.of("default", "vip", "moderator", "owner")))
+                      throw new AssertionError("ALL=" + RankGroups.ALL);
+                  if (!RankGroups.SUPPORTERS.equals(Set.of("vip")))
+                      throw new AssertionError("SUPPORTERS=" + RankGroups.SUPPORTERS);
+                  if (JobLimitRules.forGroups(List.of("default"), 10) != 2)
+                      throw new AssertionError("default job limit");
+                  if (JobLimitRules.forGroups(List.of("vip"), 10) != 4)
+                      throw new AssertionError("vip job limit");
+                  if (JobLimitRules.forGroups(List.of("owner"), 10) != 10)
+                      throw new AssertionError("owner job limit");
+                  System.out.println("RankGroups runtime smoke OK: " + RankGroups.ALL);
+              }
+          }
+          EOF
+          javac -cp build/classes/java/main -d /tmp /tmp/RankGroupsSmoke.java
+          java -cp build/classes/java/main:/tmp RankGroupsSmoke
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.13+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/progress/RankGroups.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.13+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/alpha13-out
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.13+1.21.1.jar "$OUT/"
+          cd /tmp/chainacobblemon
+          zip -qr "$OUT/Chainacobblemon-0.4.0-alpha.13-source.zip" . -x 'build/*' '.gradle/*'
+          cat > "$OUT/README-ALPHA13.txt" <<'EOF'
+          Chainacobblemon 0.4.0-alpha.13 - login crash hotfix
+
+          Fixes the dedicated-server login crash:
+          IllegalArgumentException: duplicate element: default
+          at RankGroups.<clinit>.
+
+          BASIC aliases default and DONATOR aliases vip. Rank group sets now use
+          a de-duplicating immutable construction instead of Set.of, so aliases
+          cannot crash static initialization when a player connects.
+
+          CI includes a real runtime class-initialization smoke test for ALL,
+          SUPPORTERS and JobLimitRules.
+
+          Keep ChainaBridge 0.4.0-alpha.7.
+          LuckPerms alpha.12 fix, TAB v2, Styled Chat, Twitch and stream bonuses
+          remain unchanged.
+          EOF
+          cd "$OUT"
+          sha256sum Chainacobblemon-0.4.0-alpha.13+1.21.1.jar Chainacobblemon-0.4.0-alpha.13-source.zip > SHA256SUMS-0.4.0-alpha.13.txt
+
+      - name: Upload alpha.13 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.13-Login-Crash-Fix
+          path: /tmp/alpha13-out/*
+          if-no-files-found: error
+          retention-days: 90
