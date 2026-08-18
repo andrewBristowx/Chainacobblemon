@@ -1,0 +1,44 @@
+                new CommandDef("!beneficios", List.of("!beneficiossub","!subbeneficios"), true, "💜 Los subs de Chaina tienen beneficios dentro del servidor según su Tier. Vincula tu Twitch dentro de Minecraft para que el rango se actualice automáticamente.", 30, "everyone")
+        );
+        saveCommands();
+    }
+
+    private void writeDefaultAutoMessages() throws IOException {
+        autoMessages = List.of(new AutoMessageDef("recordatorio_vincular", true,
+                "🎮 ¿Ya juegas en nuestro servidor? No olvides vincular tu cuenta de Twitch dentro de Minecraft para recibir tus beneficios de SUB CHAINA 💜 Usa !vincular si necesitas ayuda.",
+                30, true, 10));
+        saveAutoMessages();
+    }
+
+    private static void atomicWrite(Path path, String content) throws IOException {
+        Path temp = Path.of(path + ".tmp"); Files.writeString(temp, content, StandardCharsets.UTF_8);
+        try { Files.move(temp,path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+        catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temp,path, StandardCopyOption.REPLACE_EXISTING); }
+    }
+
+    private static long mtime(Path path) throws IOException { return Files.exists(path) ? Files.getLastModifiedTime(path).toMillis() : -1L; }
+    private static String normalizeCommand(String value) {
+        String v = safe(value).trim().toLowerCase(Locale.ROOT); if (!v.startsWith("!")) return ""; return v.matches("![a-z0-9_-]{1,31}") ? v : "";
+    }
+    private static List<String> normalizeAliases(String value, String command) {
+        List<String> out = new ArrayList<>(); for (String raw : safe(value).split(",")) { String a = normalizeCommand(raw); if (!a.isBlank() && !a.equals(command) && !out.contains(a)) out.add(a); } return List.copyOf(out);
+    }
+    private static String normalizeId(String value) { String v=safe(value).trim().toLowerCase(Locale.ROOT); return v.matches("[a-z0-9_-]{1,48}") ? v : ""; }
+    private static String normalizeAccess(String value) { String v=safe(value).toLowerCase(Locale.ROOT); return (v.equals("subs")||v.equals("mods"))?v:"everyone"; }
+    private static String accessLabel(String access) { return switch(normalizeAccess(access)){case "subs"->"Subs"; case "mods"->"Mods"; default->"Todos";}; }
+    private static String selected(String current,String expected){return Objects.equals(normalizeAccess(current),expected)?" selected":"";}
+    private static int clampInt(String value,int min,int max,int fallback){try{return clamp(Integer.parseInt(safe(value)),min,max);}catch(Exception e){return fallback;}}
+    private static int clamp(int value,int min,int max){return Math.max(min,Math.min(max,value));}
+    private static String safe(String value){return value==null?"":value;}
+    private static String safeError(Throwable error){String m=error==null?"":safe(error.getMessage()); return m.isBlank()&&error!=null?error.getClass().getSimpleName():m;}
+    private static JsonObject object(JsonObject parent,String name){return parent.has(name)&&parent.get(name).isJsonObject()?parent.getAsJsonObject(name):new JsonObject();}
+    private static String string(JsonObject json,String name){try{return json.has(name)&&!json.get(name).isJsonNull()?json.get(name).getAsString():"";}catch(Exception e){return "";}}
+    private static int integer(JsonObject json,String name,int fallback){try{return json.has(name)?json.get(name).getAsInt():fallback;}catch(Exception e){return fallback;}}
+    private static boolean bool(JsonObject json,String name,boolean fallback){try{return json.has(name)?json.get(name).getAsBoolean():fallback;}catch(Exception e){return fallback;}}
+    private static boolean method(HttpExchange exchange,String expected)throws IOException{if(expected.equalsIgnoreCase(exchange.getRequestMethod()))return true;exchange.getResponseHeaders().set("Allow",expected);exchange.sendResponseHeaders(405,-1);exchange.close();return false;}
+    private static String readBody(HttpExchange exchange)throws IOException{return new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8);}
+    private static Map<String,String> parseForm(String body){Map<String,String> out=new HashMap<>();for(String pair:safe(body).split("&")){if(pair.isBlank())continue;String[] kv=pair.split("=",2);out.put(urlDecode(kv[0]),kv.length>1?urlDecode(kv[1]):"");}return out;}
+    private static String urlDecode(String value){return URLDecoder.decode(value,StandardCharsets.UTF_8);}
+    private static void redirect(HttpExchange exchange,String path)throws IOException{exchange.getResponseHeaders().set("Location",path);exchange.sendResponseHeaders(303,-1);exchange.close();}
+    private static void sendHtml(HttpExchange exchange,int status,String html)throws IOException{byte[] bytes=html.getBytes(StandardCharsets.UTF_8);exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");exchange.getResponseHeaders().set("Cache-Control","no-store");exchange.sendResponseHeaders(status,bytes.length);try(OutputStream out=exchange.getResponseBody()){out.write(bytes);}}
+    private static String simplePage(String title,String body){return "<html><body style='font-family:sans-serif;background:#17101d;color:#eee;padding:40px'><h2 style='color:#ff72b6'>"+html(title)+"</h2><p>"+html(body)+"</p><a style='color:#ff72b6' href='/bot/commands'>Volver</a></body></html>";}
