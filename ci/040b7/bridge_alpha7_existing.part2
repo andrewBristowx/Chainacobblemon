@@ -1,0 +1,70 @@
+     private final AtomicLong giftEvents = new AtomicLong();
++    private final BotCommandManager commandManager;
+ 
+     private volatile BotAccount account;
+     private volatile PendingBotLink pending;
+@@ -79,6 +81,7 @@
+     private volatile String lastStatus = "Bot no vinculado.";
+     private volatile String lastEvent = "Ningún evento recibido todavía.";
+     private volatile boolean stopping;
++    private volatile boolean writePermissionReady;
+ 
+     BotEventSubService(HttpClient http,
+                        ScheduledExecutorService scheduler,
+@@ -93,12 +96,17 @@
+         this.broadcasterSupplier = broadcasterSupplier;
+         this.portSupplier = portSupplier;
+         loadBotSafely();
++        this.commandManager = new BotCommandManager(scheduler, this::sendChatMessage, this::isBroadcasterOnlineWithBot, broadcasterSupplier, () -> writePermissionReady);
+     }
+ 
+     void start() {
+         scheduler.scheduleWithFixedDelay(this::pollPendingSafely, 1, 1, TimeUnit.SECONDS);
+         scheduler.scheduleWithFixedDelay(this::maintainSafely, 55, 55, TimeUnit.MINUTES);
+-        if (account != null) scheduler.schedule(this::connectEventSubSafely, 3, TimeUnit.SECONDS);
++        commandManager.start();
++        if (account != null) {
++            scheduler.schedule(this::validateBotPermissionsSafely, 1, TimeUnit.SECONDS);
++            scheduler.schedule(this::connectEventSubSafely, 3, TimeUnit.SECONDS);
++        }
+     }
+ 
+     void stop() {
+@@ -147,6 +155,17 @@
+     long subscriptionEventCount() { return subscriptionEvents.get(); }
+     long giftEventCount() { return giftEvents.get(); }
+     String lastEventSummary() { return lastEvent; }
++    boolean writePermissionReady() { return writePermissionReady; }
++    int commandCount() { return commandManager.commandCount(); }
++    int enabledCommandCount() { return commandManager.enabledCommandCount(); }
++    int autoMessageCount() { return commandManager.autoMessageCount(); }
++
++    void handleCommandsPage(HttpExchange exchange) throws IOException { commandManager.handlePage(exchange); }
++    void handleCommandSave(HttpExchange exchange) throws IOException { commandManager.handleSaveCommand(exchange); }
++    void handleCommandDelete(HttpExchange exchange) throws IOException { commandManager.handleDeleteCommand(exchange); }
++    void handleAutoMessageSave(HttpExchange exchange) throws IOException { commandManager.handleSaveAuto(exchange); }
++    void handleAutoMessageDelete(HttpExchange exchange) throws IOException { commandManager.handleDeleteAuto(exchange); }
++    void handleCommandReload(HttpExchange exchange) throws IOException { commandManager.handleReload(exchange); }
+ 
+     void handlePage(HttpExchange exchange) throws IOException {
+         if (!method(exchange, "GET")) return;
+@@ -156,7 +175,8 @@
+         String eventSubText = current == null ? "Detenido" : (eventSubConnected() ? "Conectado y escuchando" : (socketConnected ? "Conectando suscripciones…" : "Desconectado / reconectando"));
+         String action = current == null
+                 ? "<form method='post' action='/bot/link/start'><button type='submit'>Vincular ChainaMinecraftBot</button></form>"
+-                : "<form method='post' action='/bot/eventsub/reconnect' style='display:inline'><button type='submit'>Reconectar EventSub</button></form> "
++                : (writePermissionReady ? "" : "<form method='post' action='/bot/link/start' style='display:inline'><button type='submit'>Actualizar permisos para escribir</button></form> ")
++                + "<form method='post' action='/bot/eventsub/reconnect' style='display:inline'><button type='submit'>Reconectar EventSub</button></form> "
+                 + "<form method='post' action='/bot/unlink' style='display:inline'><button class='danger' type='submit'>Desvincular bot</button></form>";
+         String page = """
+                 <!doctype html><html lang="es"><head><meta charset="utf-8">
+@@ -164,15 +184,17 @@
+                 <style>body{font-family:sans-serif;background:#17101d;color:#eee;max-width:820px;margin:40px auto;padding:24px}button,.btn{display:inline-block;padding:11px 18px;background:#ff72b6;border:0;color:#180f1d;font-weight:bold;text-decoration:none;margin:6px 4px 6px 0}.danger{background:#ff8585}.box{background:#281b32;border:1px solid #5b3a70;padding:16px;margin:14px 0}.warn{color:#ffb6d8}.ok{color:#8dffbd}code{background:#281b32;padding:2px 5px}</style></head><body>
+                 <h1>ChainaMinecraftBot</h1>
+                 <p>Bot técnico de Twitch para escuchar eventos del chat de <b>@%s</b>. No usa un token OAuth de Chaina.</p>
+-                <div class="box"><b>Cuenta:</b> <span class="%s">%s</span><br><b>EventSub:</b> %s<br><b>Estado:</b> %s</div>
++                <div class="box"><b>Cuenta:</b> <span class="%s">%s</span><br><b>EventSub:</b> %s<br><b>Escritura en chat:</b> %s<br><b>Estado:</b> %s</div>
+                 %s
+                 <div class="box"><b>Pruebas recibidas</b><br>Bits/Cheers: %d<br>Subs/resubs: %d<br>Regalos: %d<br><br><b>Último evento:</b> %s</div>
+-                <p>Permisos solicitados al bot: <code>user:read:chat</code> y <code>user:bot</code>.</p>
++                <div class="box"><b>Bot configurable</b><br>Comandos: %d (%d activos)<br>Recordatorios automáticos: %d<br><br><a class="btn" href="/bot/commands">ADMINISTRAR COMANDOS Y MENSAJES</a></div>
