@@ -248,8 +248,7 @@ public final class FishingMinigameService {
         }
 
         // Storage succeeded before this point. Publishing the compatibility event must never turn a real
-        // capture into a fake 'could not save' failure. It is attempted separately and only compatible
-        // one-argument post(...) overloads are eligible inside postPokemonCapturedEvent().
+        // capture into a fake 'could not save' failure.
         try {
             postPokemonCapturedEvent(player, session.pokemon, ball);
         } catch (Exception eventException) {
@@ -391,11 +390,15 @@ public final class FishingMinigameService {
         for (Method method : observable.getClass().getMethods()) {
             if (!method.getName().equals("post") || method.getParameterCount() != 1) continue;
             Class<?> parameterType = method.getParameterTypes()[0];
-            if (!parameterType.isInstance(captureEvent)) continue;
-            method.invoke(observable, captureEvent);
+            if (!parameterType.isArray()) continue;
+            Class<?> componentType = parameterType.getComponentType();
+            if (!componentType.isInstance(captureEvent)) continue;
+            Object events = java.lang.reflect.Array.newInstance(componentType, 1);
+            java.lang.reflect.Array.set(events, 0, captureEvent);
+            method.invoke(observable, events);
             return;
         }
-        throw new NoSuchMethodException("Compatible Cobblemon POKEMON_CAPTURED#post(PokemonCapturedEvent) method not found");
+        throw new NoSuchMethodException("Compatible Cobblemon POKEMON_CAPTURED#post(vararg PokemonCapturedEvent) method not found");
     }
 
     private static BallTuning tuning(ServerPlayerEntity player, Pokemon pokemon, PokemonCatalogEntry entry, Identifier ballId) {
