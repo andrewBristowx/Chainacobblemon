@@ -63,6 +63,7 @@ jobs:
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           mkdir -p /tmp/publish
           cp /tmp/alpha24-build.log /tmp/publish/BUILD_LOG.txt
+          cp src/main/java/com/andrewbristowx/chainacobblemon/events/FishingMinigameService.java /tmp/publish/FishingMinigameService.java
           if [ "$rc" -eq 0 ]; then
             jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.24*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
             if [ -z "$jarfile" ]; then
