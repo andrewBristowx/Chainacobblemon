@@ -1,0 +1,122 @@
+package com.andrewbristowx.chainabridge;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.sun.net.httpserver.HttpExchange;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * Runtime-configurable Twitch chat commands and scheduled reminders.
+ *
+ * Files are intentionally plaintext configuration only; no OAuth tokens are stored here.
+ * Changes made from the web panel are written atomically. Changes made with a hosting
+ * file editor are picked up automatically within a few seconds without restarting Java.
+ */
+final class BotCommandManager {
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+    private static final Path COMMANDS_PATH = Path.of("chainabridge-commands.json");
+    private static final Path AUTO_PATH = Path.of("chainabridge-automessages.json");
+    private static final String BOT_LOGIN = "chainaminecraftbot";
+
+    interface ChatSender {
+        void send(String message) throws Exception;
+    }
+
+    interface LiveChecker {
+        boolean isLive() throws Exception;
+    }
+
+    private final ScheduledExecutorService scheduler;
+    private final ChatSender sender;
+    private final LiveChecker liveChecker;
+    private final Supplier<String> broadcasterSupplier;
+    private final Supplier<Boolean> writeReadySupplier;
+    private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
+    private final Map<String, Long> autoLastSent = new ConcurrentHashMap<>();
+
+    private volatile List<CommandDef> commands = List.of();
+    private volatile List<AutoMessageDef> autoMessages = List.of();
+    private volatile Map<String, String> variables = Map.of();
+    private volatile long commandsMtime = -1L;
+    private volatile long autoMtime = -1L;
+    private volatile long lastHumanChatMillis = 0L;
+    private volatile String lastCommandEvent = "Ningún comando ejecutado todavía.";
+    private volatile String lastAutoEvent = "Ningún recordatorio enviado todavía.";
+
+    BotCommandManager(ScheduledExecutorService scheduler,
+                      ChatSender sender,
+                      LiveChecker liveChecker,
+                      Supplier<String> broadcasterSupplier,
+                      Supplier<Boolean> writeReadySupplier) {
+        this.scheduler = scheduler;
+        this.sender = sender;
+        this.liveChecker = liveChecker;
+        this.broadcasterSupplier = broadcasterSupplier;
+        this.writeReadySupplier = writeReadySupplier;
+        loadOrCreateAll();
+    }
+
+    void start() {
+        scheduler.scheduleWithFixedDelay(this::reloadIfChangedSafely, 5, 5, TimeUnit.SECONDS);
+        long now = System.currentTimeMillis();
+        for (AutoMessageDef def : autoMessages) autoLastSent.put(def.id(), now);
+        scheduler.scheduleWithFixedDelay(this::tickAutoMessagesSafely, 1, 1, TimeUnit.MINUTES);
+    }
+
+    int commandCount() { return commands.size(); }
+    int enabledCommandCount() { return (int) commands.stream().filter(CommandDef::enabled).count(); }
+    int autoMessageCount() { return autoMessages.size(); }
+    String lastCommandEvent() { return lastCommandEvent; }
+    String lastAutoEvent() { return lastAutoEvent; }
+
+    void onChatMessage(JsonObject event) {
+        String login = string(event, "chatter_user_login").toLowerCase(Locale.ROOT);
+        if (login.isBlank() || BOT_LOGIN.equals(login)) return;
+        lastHumanChatMillis = System.currentTimeMillis();
+
+        String text = string(object(event, "message"), "text").trim();
+        if (text.isBlank() || text.charAt(0) != '!') return;
+        String trigger = text.split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+        CommandDef command = findCommand(trigger);
+        if (command == null || !command.enabled()) return;
+        if (!allowed(command.access(), event)) return;
+
+        long now = System.currentTimeMillis();
+        long last = commandCooldowns.getOrDefault(command.command(), 0L);
+        if (command.cooldownSeconds() > 0 && now - last < command.cooldownSeconds() * 1000L) return;
+        commandCooldowns.put(command.command(), now);
+
+        String user = string(event, "chatter_user_login");
+        String response = expand(command.response(), user, command.command());
+        if (response.isBlank()) return;
+        Thread.startVirtualThread(() -> {
+            try {
+                sender.send(response);
+                lastCommandEvent = command.command() + " usado por @" + user + " · " + Instant.now();
+                System.out.println("[bot-command] " + command.command() + " by @" + user + " -> " + response);
+            } catch (Exception error) {
+                lastCommandEvent = command.command() + " falló: " + safeError(error);
