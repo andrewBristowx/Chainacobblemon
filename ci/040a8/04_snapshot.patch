@@ -1,0 +1,13 @@
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
+@@ -3,6 +3,10 @@
+ /** Client-facing Twitch state. Contains no OAuth tokens or secrets. */
+ public final class TwitchSnapshot {
+     public boolean visible = true;
++    /** True when the snapshot is an administrator view of another player. */
++    public boolean adminView;
++    public String targetUuid = "";
++    public String targetName = "";
+     public boolean enabled;
+     public String mode = "development";
+     public String broadcaster = "chainavt";
