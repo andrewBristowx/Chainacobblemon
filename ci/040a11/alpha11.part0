@@ -1,0 +1,265 @@
+diff -ruN alpha10src/CHANGELOG.md alpha11work/CHANGELOG.md
+--- alpha10src/CHANGELOG.md	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/CHANGELOG.md	2026-08-18 20:37:26.752729523 +0000
+@@ -1,3 +1,11 @@
++# 0.4.0-alpha.11
++
++- TAB Chaina v2: elimina el recordatorio duplicado de vincular Twitch, añade una cabecera/footer más decorados y usa nombres con rango coloreado.
++- Integración visual opcional con emotes Twitch actuales de Chaina (`chainavtCute` y `chainavtAwa`), descargados/cacheados por el servidor y enviados al cliente con el sistema de assets existente.
++- LuckPerms bootstrap no destructivo: crea los grupos Twitch configurados si faltan y encadena twitch -> SUB I -> SUB II -> SUB III sin reemplazar el grupo principal del jugador.
++- Styled Chat se autoconfigura una sola vez con copia de seguridad para usar el mismo nombre/rango coloreado que el TAB.
++- El placeholder `%chainacobblemon:styled_name%` muestra rango principal + SUB secundaria y funciona también sin LuckPerms usando el estado Twitch interno.
++
+ # 0.4.0-alpha.10
+ 
+ - Integración opcional con Styled Player List: placeholders dinámicos de Twitch/bonus, estilo `Chaina Server` autogenerado y seleccionado una sola vez como TAB predeterminado.
+diff -ruN alpha10src/gradle.properties alpha11work/gradle.properties
+--- alpha10src/gradle.properties	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/gradle.properties	2026-08-18 20:37:26.752580171 +0000
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.10+1.21.1
++mod_version=0.4.0-alpha.11+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+diff -ruN alpha10src/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java alpha11work/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java
+--- alpha10src/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java	2026-08-18 20:37:26.752489156 +0000
+@@ -20,6 +20,7 @@
+ import com.andrewbristowx.chainacobblemon.client.events.EventClient;
+ import com.andrewbristowx.chainacobblemon.client.twitch.TwitchClient;
+ import com.andrewbristowx.chainacobblemon.client.twitch.TwitchStatusHud;
++import com.andrewbristowx.chainacobblemon.client.twitch.ChainaTabDecoration;
+ import com.andrewbristowx.chainacobblemon.registry.ModRegistries;
+ import net.fabricmc.api.ClientModInitializer;
+ import net.minecraft.client.render.block.entity.BlockEntityRendererFactories;
+@@ -52,6 +53,7 @@
+         EventClient.initialize();
+         TwitchClient.initialize();
+         TwitchStatusHud.initialize();
++        ChainaTabDecoration.initialize();
+         Chainacobblemon.LOGGER.info("Chainacobblemon client layer initialized with GachaMachineRenderer");
+     }
+ 
+diff -ruN alpha10src/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/ChainaTabDecoration.java alpha11work/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/ChainaTabDecoration.java
+--- alpha10src/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/ChainaTabDecoration.java	1970-01-01 00:00:00.000000000 +0000
++++ alpha11work/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/ChainaTabDecoration.java	2026-08-18 20:35:48.591175652 +0000
+@@ -0,0 +1,41 @@
++package com.andrewbristowx.chainacobblemon.client.twitch;
++
++import com.andrewbristowx.chainacobblemon.client.visual.ClientVisualAssetCache;
++import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
++import net.minecraft.client.MinecraftClient;
++import net.minecraft.client.gui.DrawContext;
++import net.minecraft.util.Identifier;
++
++/** Adds two Chaina Twitch emotes around the Styled Player List title. */
++public final class ChainaTabDecoration {
++    private static final String CUTE = "media:chaina_tab_cute";
++    private static final String AWA = "media:chaina_tab_awa";
++    private static final Identifier FALLBACK = Identifier.of("minecraft", "textures/misc/unknown_server.png");
++
++    private ChainaTabDecoration() { }
++
++    public static void initialize() {
++        HudRenderCallback.EVENT.register((context, tickCounter) -> render(context));
++    }
++
++    private static void render(DrawContext context) {
++        MinecraftClient client = MinecraftClient.getInstance();
++        TwitchSnapshot snapshot = TwitchClient.latest();
++        if (client.player == null || client.options.hudHidden || snapshot == null || !snapshot.styledPlayerListIntegrated) return;
++        if (!client.options.playerListKey.isPressed()) return;
++
++        int size = 28;
++        int centerX = context.getScaledWindowWidth() / 2;
++        int y = 43;
++        int spread = Math.min(220, Math.max(145, context.getScaledWindowWidth() / 5));
++        draw(context, CUTE, centerX - spread - size / 2, y, size);
++        draw(context, AWA, centerX + spread - size / 2, y, size);
++    }
++
++    private static void draw(DrawContext context, String key, int x, int y, int size) {
++        if (!ClientVisualAssetCache.has(key)) return;
++        Identifier texture = ClientVisualAssetCache.texture(key, FALLBACK);
++        context.fill(x - 2, y - 2, x + size + 2, y + size + 2, 0x68200F2B);
++        context.drawTexture(texture, x, y, size, size, 0.0F, 0.0F, 112, 112, 112, 112);
++    }
++}
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java	2026-08-18 20:37:26.752425521 +0000
+@@ -55,6 +55,8 @@
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchNetworking;
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchService;
+ import com.andrewbristowx.chainacobblemon.twitch.StyledPlayerListIntegration;
++import com.andrewbristowx.chainacobblemon.twitch.StyledChatIntegration;
++import com.andrewbristowx.chainacobblemon.twitch.LuckPermsBootstrap;
+ import net.fabricmc.api.ModInitializer;
+ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+@@ -63,7 +65,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.10+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.11+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+@@ -158,7 +160,9 @@
+         ServerLifecycleEvents.SERVER_STARTING.register(server -> StreamotesServerIntegration.ensureOfficialChannel());
+         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+             TWITCH_SERVICE.serverStarted(server);
+-            StyledPlayerListIntegration.serverStarted(server, CONFIG_MANAGER);
++            LuckPermsBootstrap.serverStarted(server, CONFIG_MANAGER);
++            StyledChatIntegration.serverStarted(server, CONFIG_MANAGER);
++            StyledPlayerListIntegration.serverStarted(server, CONFIG_MANAGER, VISUAL_ASSETS);
+             POKEMON_CATALOG.rebuild();
+             NpcBattleService.auditCompatibility(server);
+             HologramService.restoreAll(server);
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java	2026-08-18 20:37:26.752267827 +0000
+@@ -1,7 +1,7 @@
+ package com.andrewbristowx.chainacobblemon.config;
+ 
+ public final class ChainacobblemonConfig {
+-    public int configVersion = 14;
++    public int configVersion = 15;
+     public boolean debugLogging = false;
+     public boolean playerDataEnabled = true;
+     public HubSettings hub = new HubSettings();
+@@ -29,7 +29,7 @@
+         twitch.normalize();
+         migrateLegacyRankGroups();
+         if (previousConfigVersion < 10) migrateTreasureTicketRewards();
+-        configVersion = 14;
++        configVersion = 15;
+     }
+ 
+     /** 0.5.0 adds the Tesoros de Chaina ticket without deleting customized daily rewards. */
+@@ -77,6 +77,12 @@
+         public boolean streamHudEnabled = true;
+         /** Auto-create a Chaina style and placeholders when Styled Player List is installed. */
+         public boolean styledPlayerListAutoConfigure = true;
++        /** Download and render two Chaina Twitch emotes around the TAB title. */
++        public boolean styledPlayerListTabEmotes = true;
++        /** Configure Styled Chat once so rank colors/tags match the TAB. */
++        public boolean styledChatAutoConfigure = true;
++        /** Create and maintain Chainacobblemon-owned Twitch groups in LuckPerms. */
++        public boolean luckPermsAutoConfigure = true;
+         /** Hide the floating Twitch HUD when the same information is available in TAB. */
+         public boolean hideStreamHudWhenTabIntegrated = true;
+         /** Roll persistent random gameplay bonuses once per Chaina live session. */
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java	1970-01-01 00:00:00.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java	2026-08-18 20:35:48.588812569 +0000
+@@ -0,0 +1,165 @@
++package com.andrewbristowx.chainacobblemon.twitch;
++
++import com.andrewbristowx.chainacobblemon.Chainacobblemon;
++import com.andrewbristowx.chainacobblemon.config.ConfigManager;
++import net.fabricmc.loader.api.FabricLoader;
++import net.minecraft.server.MinecraftServer;
++import net.minecraft.server.network.ServerPlayerEntity;
++
++import java.lang.reflect.Method;
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.Collections;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Locale;
++import java.util.Set;
++import java.util.UUID;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.function.Consumer;
++
++/**
++ * Optional LuckPerms bootstrap. Uses reflection so Chainacobblemon keeps working
++ * in integrated singleplayer worlds and servers where LuckPerms is not installed.
++ */
++public final class LuckPermsBootstrap {
++    private static final long GROUP_CACHE_MS = 2_000L;
++    private static final ConcurrentHashMap<UUID, CachedGroups> GROUP_CACHE = new ConcurrentHashMap<>();
++    private static volatile Object luckPerms;
++    private static volatile boolean available;
++
++    private LuckPermsBootstrap() { }
++
++    public static void serverStarted(MinecraftServer server, ConfigManager configManager) {
++        GROUP_CACHE.clear();
++        available = false;
++        luckPerms = null;
++        if (!configManager.get().twitch.luckPermsAutoConfigure) return;
++        if (!FabricLoader.getInstance().isModLoaded("luckperms")) {
++            Chainacobblemon.LOGGER.info("LuckPerms not detected; Chaina ranks will use internal Twitch state only");
++            return;
++        }
++
++        try {
++            Class<?> provider = Class.forName("net.luckperms.api.LuckPermsProvider");
++            Object api = provider.getMethod("get").invoke(null);
++            luckPerms = api;
++            available = true;
++
++            var settings = configManager.get().twitch;
++            List<CompletableFuture<?>> futures = new ArrayList<>();
++            futures.add(ensureGroup(api, settings.linkedGroup, null,
++                    List.of("chainacobblemon.twitch.linked")));
++            futures.add(ensureGroup(api, settings.tier1Group, settings.linkedGroup,
++                    List.of("chainacobblemon.twitch.sub", "chainacobblemon.twitch.sub.1")));
++            futures.add(ensureGroup(api, settings.tier2Group, settings.tier1Group,
++                    List.of("chainacobblemon.twitch.sub.2")));
++            futures.add(ensureGroup(api, settings.tier3Group, settings.tier2Group,
++                    List.of("chainacobblemon.twitch.sub.3")));
++
++            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {
++                if (error != null) {
++                    Chainacobblemon.LOGGER.warn("LuckPerms Chaina group bootstrap finished with an error", error);
++                } else {
++                    Chainacobblemon.LOGGER.info("LuckPerms ready: Twitch groups {} -> {} -> {} -> {}",
++                            settings.linkedGroup, settings.tier1Group, settings.tier2Group, settings.tier3Group);
++                }
++                GROUP_CACHE.clear();
++            });
++        } catch (Throwable exception) {
++            available = false;
++            luckPerms = null;
++            Chainacobblemon.LOGGER.warn("Could not initialize optional LuckPerms integration", exception);
++        }
++    }
++
++    public static boolean available() {
++        return available && luckPerms != null;
++    }
++
++    public static Set<String> inheritedGroups(ServerPlayerEntity player) {
++        if (player == null || !available()) return Set.of();
++        long now = System.currentTimeMillis();
++        CachedGroups cached = GROUP_CACHE.get(player.getUuid());
++        if (cached != null && now - cached.loadedAt < GROUP_CACHE_MS) return cached.groups;
++
++        Set<String> groups = queryGroups(player);
++        GROUP_CACHE.put(player.getUuid(), new CachedGroups(now, groups));
++        return groups;
++    }
++
++    public static void invalidate(UUID playerId) {
++        if (playerId != null) GROUP_CACHE.remove(playerId);
++    }
++
++    private static CompletableFuture<?> ensureGroup(Object api, String rawName, String rawParent, List<String> permissions) throws Exception {
++        String name = normalizeGroup(rawName);
++        String parent = normalizeGroup(rawParent);
++        Object groupManager = api.getClass().getMethod("getGroupManager").invoke(api);
++        Method modifyGroup = groupManager.getClass().getMethod("modifyGroup", String.class, Consumer.class);
++        Consumer<Object> action = group -> {
++            try {
++                Object data = group.getClass().getMethod("data").invoke(group);
++                if (!parent.isBlank() && !parent.equals(name)) {
++                    addNode(data, "net.luckperms.api.node.types.InheritanceNode"
