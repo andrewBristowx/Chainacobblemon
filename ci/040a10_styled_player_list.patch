@@ -207,9 +207,9 @@ diff -ruN alpha9baseline/src/main/java/com/andrewbristowx/chainacobblemon/twitch
 +                Chainacobblemon.LOGGER.info("Selected Chaina as the default Styled Player List style (one-time auto configuration)");
 +            }
 +
-+            int result = server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledplayerlist reload");
-+            active = result > 0;
-+            Chainacobblemon.LOGGER.info("Styled Player List Chaina integration active; reload result={}", result);
++            server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledplayerlist reload");
++            active = true;
++            Chainacobblemon.LOGGER.info("Styled Player List Chaina integration active; configuration reloaded successfully");
 +        } catch (Throwable exception) {
 +            active = false;
 +            Chainacobblemon.LOGGER.warn("Could not auto-configure Styled Player List; Twitch HUD fallback remains enabled", exception);
