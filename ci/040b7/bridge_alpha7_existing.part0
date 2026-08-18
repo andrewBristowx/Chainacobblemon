@@ -1,0 +1,124 @@
+--- a/INICIAR-CHAINABRIDGE.bat
++++ b/INICIAR-CHAINABRIDGE.bat
+@@ -1,7 +1,7 @@
+ @echo off
+-title ChainaBridge 0.4.0-alpha.6
++title ChainaBridge 0.4.0-alpha.7
+ cd /d "%~dp0"
+-java -jar ChainaBridge-0.4.0-alpha.6.jar
++java -jar ChainaBridge-0.4.0-alpha.7.jar
+ if errorlevel 1 (
+   echo.
+   echo ChainaBridge se cerro con un error. Comprueba que Java 21 este instalado.
+--- a/README.md
++++ b/README.md
+@@ -1,52 +1,77 @@
+-# ChainaBridge 0.4.0-alpha.6
++# ChainaBridge 0.4.0-alpha.7
+ 
+-Bridge local para Chainacobblemon con persistencia Twitch cifrada y un listener EventSub separado para **ChainaMinecraftBot**.
++Bridge local para Chainacobblemon con sesiones Twitch cifradas, EventSub y comandos configurables de **ChainaMinecraftBot**.
+ 
+-## Lo que conserva de alpha.5
++## Permisos del bot
+ 
+-- Vinculación de cada jugador con Twitch Device Code Flow público.
+-- Solo `user:read:subscriptions` para jugadores.
+-- Sin Client Secret y sin token OAuth de Chaina.
+-- Sesiones de jugadores cifradas con AES-256-GCM en `chainabridge-accounts.enc`.
+-- Refresh tokens públicos rotados y guardados atómicamente.
+-- `chainabridge-master.key` o `CHAINABRIDGE_MASTER_KEY` para la clave AES-256.
+-
+-## Nuevo: ChainaMinecraftBot + EventSub
+-
+-La cuenta técnica **ChainaMinecraftBot** se autoriza por separado y solicita únicamente:
++ChainaMinecraftBot solicita únicamente:
+ 
+ - `user:read:chat`
++- `user:write:chat`
+ - `user:bot`
+ 
+-La cuenta debe ser moderadora de `chainavt`. No se solicita `channel:bot` porque la autorización de chat puede apoyarse en el estado MOD del bot en el canal. No se solicita `bits:read` ni `channel:read:subscriptions` en esta primera prueba.
++La cuenta debe continuar como MOD de `chainavt`. No se usa un token OAuth de Chaina, Client Secret, `bits:read` ni `channel:read:subscriptions` para este sistema de chat.
++
++Al actualizar desde alpha.6, la sesión anterior del bot no contiene `user:write:chat`. Abre `http://127.0.0.1:8765/bot` y pulsa **Actualizar permisos para escribir** una sola vez. Las vinculaciones de jugadores y el almacén cifrado anterior se conservan.
++
++## Comandos incluidos por defecto
++
++- `!server` (alias `!servidor`, `!minecraft`): indica que la información del servidor está en `!discord`.
++- `!vincular` (alias `!link`): recuerda cómo obtener beneficios vinculando Twitch dentro de Minecraft.
++- `!beneficios` (alias `!beneficiossub`, `!subbeneficios`): explica que los beneficios dependen del Tier y de la vinculación.
++
++Todos tienen cooldown global de 30 segundos para evitar spam.
++
++## Administración sin recompilar
++
++Abre:
+ 
+-ChainaBridge abre una conexión EventSub WebSocket y se suscribe a:
++`http://127.0.0.1:8765/bot/commands`
+ 
+-- `channel.chat.message`: detecta Cheers/Bits presentes en mensajes de chat.
+-- `channel.chat.notification`: detecta avisos de `sub`, `resub`, `sub_gift` y `community_sub_gift`.
++Desde ahí puedes crear, editar o eliminar comandos y recordatorios automáticos. También puedes modificar estos archivos directamente con el editor del hosting:
+ 
+-Esta alpha **solo registra los eventos y contadores para validar Twitch**. Todavía no entrega recompensas dentro de Minecraft.
++- `chainabridge-commands.json`
++- `chainabridge-automessages.json`
+ 
+-## Cómo vincular el bot
++ChainaBridge detecta cambios de archivo cada pocos segundos y los recarga sin reiniciar ni generar otro JAR.
+ 
+-1. Mantén `ChainaMinecraftBot` como MOD de `chainavt`.
+-2. Inicia `ChainaBridge-0.4.0-alpha.6.jar`.
+-3. Abre `http://127.0.0.1:8765/bot`.
+-4. Pulsa **Vincular ChainaMinecraftBot**.
+-5. En Twitch, asegúrate de iniciar sesión como **ChainaMinecraftBot** y autoriza.
+-6. ChainaBridge rechazará automáticamente una cuenta distinta.
+-7. Al terminar, el panel debe mostrar EventSub conectado y en consola aparecerá `[eventsub] READY`.
++Cada comando permite:
++
++- respuesta personalizada;
++- alias;
++- activar/desactivar;
++- cooldown configurable;
++- acceso para todos, subs o mods;
++- variables `{user}`, `{channel}`, `{command}` y variables personalizadas del JSON.
++
++## Recordatorio automático incluido
++
++Por defecto, cada 30 minutos el bot puede recordar que los jugadores vinculen Twitch para recibir beneficios. El recordatorio:
++
++- solo se envía si `chainavt` está en directo;
++- solo se envía si hubo actividad humana en el chat durante los últimos 10 minutos;
++- puede editarse, desactivarse o borrarse desde `/bot/commands` o el JSON.
++
++## EventSub
++
++Se mantienen:
++
++- `channel.chat.message`: mensajes normales y Cheers/Bits visibles en chat.
++- `channel.chat.notification`: subs, resubs y regalos de subs.
+ 
+ ## Archivos locales
+ 
+-- `chainabridge.properties`: Client ID público, canal, bind y puerto.
+-- `chainabridge-keys.json`: clave Ed25519 para firmar respuestas del bridge.
+-- `chainabridge-master.key`: clave AES-256 local; no compartir.
+-- `chainabridge-accounts.enc`: sesiones cifradas de jugadores.
+-- `chainabridge-bot.enc`: sesión cifrada de ChainaMinecraftBot.
++Conserva al actualizar:
++
++- `chainabridge.properties`
++- `chainabridge-keys.json`
++- `chainabridge-master.key`
++- `chainabridge-accounts.enc`
++- `chainabridge-bot.enc`
+ 
+-El bot usa la misma clave AES maestra pero un almacén y AAD separados, de modo que la persistencia de jugadores de alpha.5 no se modifica.
++Nuevos archivos de configuración:
+ 
+-## Seguridad
++- `chainabridge-commands.json`
++- `chainabridge-automessages.json`
+ 
