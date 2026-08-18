@@ -6,6 +6,9 @@ on:
       - release/0.3.0-alpha.25
     paths-ignore:
       - 'dist/alpha25/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -103,6 +106,7 @@ jobs:
           path: /tmp/publish/*
 
       - name: Publish build result to branch
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euxo pipefail
