@@ -51,8 +51,9 @@ for i in $(seq 1 30); do
   if curl -fsS 'http://127.0.0.1:8765/v1/support/events?after=0&limit=10' > support.json; then break; fi
   sleep 1
 done
-grep -q 'latest_sequence' support.json
-grep -q 'events' support.json
+# Bridge API responses are Ed25519-signed envelopes; the payload itself is base64url encoded.
+grep -q '"payload"' support.json
+grep -q '"signature"' support.json
 kill $PID
 wait $PID || true
 trap - EXIT
