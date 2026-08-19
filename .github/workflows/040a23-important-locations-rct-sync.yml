@@ -1,0 +1,57 @@
+name: Build Chainacobblemon 0.4.0-alpha.23 Important Locations RCT Sync
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.23
+    paths:
+      - 'ci/040a23/**'
+      - '.github/workflows/040a23-important-locations-rct-sync.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.22
+    paths:
+      - 'ci/040a23/**'
+      - '.github/workflows/040a23-important-locations-rct-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.23
+        run: bash ci/040a23/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.23-Important-Locations-RCT-Sync
+          path: /tmp/alpha23-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.23 to dist
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha23
+          mkdir -p dist/alpha23
+          cp /tmp/alpha23-out/* dist/alpha23/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha23/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha23/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha23
+          git commit -m 'build: publish verified alpha23 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.23
