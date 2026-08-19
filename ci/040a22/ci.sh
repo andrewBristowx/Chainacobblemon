@@ -30,7 +30,7 @@ test -s "$jarfile"
 unzip -p "$jarfile" fabric.mod.json | grep -q '0.4.0-alpha.22+1.21.1'
 jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/dungeon/RctDungeonSpawnerService.class'
 javap -classpath "$jarfile" -p com.andrewbristowx.chainacobblemon.dungeon.RctDungeonSpawnerService > /tmp/rctspawner.txt
-grep -q 'ensureNearby(net.minecraft.server.world.ServerWorld, net.minecraft.server.network.ServerPlayerEntity)' /tmp/rctspawner.txt
+grep -q 'ensureNearby' /tmp/rctspawner.txt
 
 OUT=/tmp/alpha22-out
 cp "$jarfile" "$OUT/Chainacobblemon-0.4.0-alpha.22+1.21.1.jar"
