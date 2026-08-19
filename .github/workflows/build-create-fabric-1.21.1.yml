@@ -1,4 +1,4 @@
-name: Build Create Fabric 1.21.1 upstream
+name: Build Create Fabric 1.21.1 community port
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-create-fabric:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout helper repository
         uses: actions/checkout@v4
@@ -23,26 +23,17 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Clone upstream Create Fabric 1.21.1
+      - name: Clone verified community Fabric 1.21.1 port
         run: |
-          git clone --depth 1 --branch 'mc1.21.1/fabric/dev' https://github.com/Fabricators-of-Create/Create.git upstream-create
+          set -euxo pipefail
+          git clone https://github.com/Zaxoosh/Create-For-Fabric-Continued.git upstream-create
           cd upstream-create
-          test "$(git rev-parse HEAD)" = "7f1f67b6ecbbde512e8d35404f3621a6875ce838"
+          git checkout a35b5430791d7b9ffc30d7063e83c8e32db93991
+          test "$(git rev-parse HEAD)" = "a35b5430791d7b9ffc30d7063e83c8e32db93991"
           git rev-parse HEAD | tee ../UPSTREAM_COMMIT.txt
           git log -1 --pretty='%H%n%ci%n%s' > ../UPSTREAM_INFO.txt
 
-      - name: Update moved FTB Maven endpoint
-        working-directory: upstream-create
-        run: |
-          set -euxo pipefail
-          grep -q 'https://maven.saps.dev/releases' build.gradle.kts
-          sed -i 's#https://maven.saps.dev/releases#https://maven.ftb.dev/releases#g' build.gradle.kts
-          grep -q 'https://maven.ftb.dev/releases' build.gradle.kts
-          grep -q 'dev.ftb.mods:ftb-chunks-fabric:2001.3.1' build.gradle.kts
-          grep -q 'dev.ftb.mods:ftb-teams-fabric:2001.3.0' build.gradle.kts
-          grep -q 'dev.ftb.mods:ftb-library-fabric:2001.2.4' build.gradle.kts
-
-      - name: Build upstream source
+      - name: Build source
         working-directory: upstream-create
         shell: bash
         run: |
@@ -57,7 +48,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Create-Fabric-1.21.1-build-diagnostics
+          name: Create-Fabric-1.21.1-community-build-diagnostics
           path: |
             create-build.log
             BUILD_EXIT.txt
@@ -67,38 +58,48 @@ jobs:
           retention-days: 7
 
       - name: Verify Fabric 1.21.1 output
+        shell: bash
         run: |
           set -euxo pipefail
           ls -lah upstream-create/build/libs
-          JAR="$(find upstream-create/build/libs -maxdepth 1 -type f -name 'create-fabric-*.jar' ! -name '*sources*' ! -name '*dev*' ! -name '*shadow*' -print -quit)"
+          JAR="$(find upstream-create/build/libs -maxdepth 1 -type f -name 'create-for-fabric-continued-*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
           test -n "$JAR"
           test -s "$JAR"
           unzip -p "$JAR" fabric.mod.json > fabric.mod.json
-          grep -q '"id"[[:space:]]*:[[:space:]]*"create"' fabric.mod.json
-          grep -q '1.21.1' fabric.mod.json
-          cp "$JAR" Create-Fabric-1.21.1-DEV-BUILD.jar
-          sha256sum Create-Fabric-1.21.1-DEV-BUILD.jar > SHA256SUMS.txt
+          python3 - <<'PY'
+          import json
+          p = json.load(open('fabric.mod.json', encoding='utf-8'))
+          assert p.get('name') == 'Create', p.get('name')
+          assert p.get('id') == 'create_ufoport', p.get('id')
+          mc = p.get('depends', {}).get('minecraft')
+          vals = mc if isinstance(mc, list) else [mc]
+          assert '1.21.1' in vals, vals
+          java = str(p.get('depends', {}).get('java', ''))
+          assert '21' in java, java
+          print('Verified:', p.get('id'), p.get('version'), vals, java)
+          PY
+          cp "$JAR" Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar
+          sha256sum Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar > SHA256SUMS.txt
           {
-            echo 'Create Fabric 1.21.1 development build'
+            echo 'Create For Fabric Continued - Minecraft 1.21/1.21.1 community build'
             echo
-            echo 'Source: Fabricators-of-Create/Create'
-            echo 'Upstream branch: mc1.21.1/fabric/dev'
-            echo -n 'Upstream commit: '; cat UPSTREAM_COMMIT.txt
+            echo 'Source: Zaxoosh/Create-For-Fabric-Continued (MIT)'
+            echo 'This is NOT an official Create or Create Fabric release.'
+            echo -n 'Source commit: '; cat UPSTREAM_COMMIT.txt
             echo
             cat UPSTREAM_INFO.txt
             echo
-            echo 'Build-only compatibility fix: the obsolete FTB Maven repository URL was changed from maven.saps.dev/releases to the current maven.ftb.dev/releases endpoint.'
-            echo 'All declared FTB compile-only dependencies were retained.'
-            echo 'No Create Java/resource source files were modified.'
-            echo 'This is a development build, not an official Create release.'
+            echo 'Built without source modifications using Java 21.'
+            echo 'The resulting fabric.mod.json explicitly declares Minecraft 1.21 and 1.21.1 support.'
+            echo 'Required runtime dependencies include Fabric API and Forge Config API Port as declared by the source project.'
           } > BUILD-INFO.txt
 
       - name: Upload compiled Create Fabric
         uses: actions/upload-artifact@v4
         with:
-          name: Create-Fabric-1.21.1-DEV-BUILD
+          name: Create-For-Fabric-Continued-0.9.3d-mc1.21.1
           path: |
-            Create-Fabric-1.21.1-DEV-BUILD.jar
+            Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar
             SHA256SUMS.txt
             BUILD-INFO.txt
             UPSTREAM_COMMIT.txt
