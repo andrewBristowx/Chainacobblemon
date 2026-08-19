@@ -1,0 +1,184 @@
+name: Build Chainacobblemon 0.4.0-alpha.4 Real Twitch Bridge
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.4
+    paths-ignore:
+      - 'dist/040a4/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.31 source and Gradle wrapper
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          test -f dist/alpha31/Chainacobblemon-0.3.0-alpha.31-source.zip
+          unzip -q dist/alpha31/Chainacobblemon-0.3.0-alpha.31-source.zip -d /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.31+1.21.1' /tmp/chainacobblemon/gradle.properties
+          sed -i 's/\r$//' /tmp/chainacobblemon/gradlew
+          chmod +x /tmp/chainacobblemon/gradlew
+
+      - name: Build standalone ChainaBridge
+        shell: bash
+        run: |
+          set -euxo pipefail
+          /tmp/chainacobblemon/gradlew -p "$GITHUB_WORKSPACE/bridge" clean jar --no-daemon 2>&1 | tee /tmp/chainabridge-build.log
+          test -f bridge/build/libs/ChainaBridge-0.4.0-alpha.4.jar
+
+      - name: Smoke test ChainaBridge local HTTP server
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/bridge-smoke
+          cp bridge/build/libs/ChainaBridge-0.4.0-alpha.4.jar /tmp/bridge-smoke/
+          cd /tmp/bridge-smoke
+          java -jar ChainaBridge-0.4.0-alpha.4.jar >bridge.log 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8765/health >health.json; then break; fi
+            sleep 0.5
+          done
+          test -s health.json
+          grep -q 'payload' health.json
+          curl -fsS http://127.0.0.1:8765/setup >setup.html
+          grep -q 'Client ID' setup.html
+          grep -q 'NO pegues un Client Secret' setup.html
+          kill $pid
+          wait $pid || true
+          trap - EXIT
+
+      - name: Reapply Twitch Phase 1
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a1/hotfix.py
+          grep -q 'mod_version=0.4.0-alpha.1+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Reapply alpha.2 Twitch UI links
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a2/hotfix.py
+          grep -q 'mod_version=0.4.0-alpha.2+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Reapply alpha.3 no-blur fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a3/hotfix.py
+          grep -q 'mod_version=0.4.0-alpha.3+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Apply alpha.4 real ChainaBridge integration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a4/hotfix.py
+          root=/tmp/chainacobblemon
+          grep -q 'mod_version=0.4.0-alpha.4+1.21.1' "$root/gradle.properties"
+          grep -q 'configVersion = 12' "$root/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java"
+          grep -q 'Twitch real (ChainaBridge)' "$root/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java"
+
+      - name: Compile and package 0.4.0-alpha.4
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/chainacobblemon
+          ./gradlew clean build -x test --no-daemon 2>&1 | tee /tmp/040a4-build.log
+          rc=${PIPESTATUS[0]}
+
+          rm -rf /tmp/publish
+          mkdir -p /tmp/publish
+          echo '${{ github.run_id }}' > /tmp/publish/RUN_ID.txt
+          cp /tmp/040a4-build.log /tmp/publish/BUILD_LOG.txt
+          cp /tmp/chainabridge-build.log /tmp/publish/CHAINABRIDGE_BUILD_LOG.txt
+          cp "$GITHUB_WORKSPACE/bridge/build/libs/ChainaBridge-0.4.0-alpha.4.jar" /tmp/publish/
+          cp "$GITHUB_WORKSPACE/bridge/README.md" /tmp/publish/CHAINABRIDGE-README.md
+
+          if [ "$rc" -eq 0 ]; then
+            jarfile="$(find build/libs -maxdepth 1 -type f -name '*0.4.0-alpha.4*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+            if [ -z "$jarfile" ]; then
+              echo 'FAILURE: build returned 0 but remapped 0.4.0-alpha.4 jar was not found.' > /tmp/publish/BUILD_STATUS.txt
+              rc=88
+            else
+              cp "$jarfile" /tmp/publish/Chainacobblemon-0.4.0-alpha.4+1.21.1.jar
+              zip -qr /tmp/publish/Chainacobblemon-0.4.0-alpha.4-source.zip . -x './.gradle/*' './build/*'
+              cd "$GITHUB_WORKSPACE"
+              zip -qr /tmp/publish/ChainaBridge-0.4.0-alpha.4-source.zip bridge -x 'bridge/.gradle/*' 'bridge/build/*'
+              cd /tmp/publish
+              sha256sum Chainacobblemon-0.4.0-alpha.4+1.21.1.jar ChainaBridge-0.4.0-alpha.4.jar Chainacobblemon-0.4.0-alpha.4-source.zip ChainaBridge-0.4.0-alpha.4-source.zip > SHA256SUMS-0.4.0-alpha.4.txt
+              echo 'SUCCESS' > BUILD_STATUS.txt
+            fi
+          else
+            echo "FAILURE rc=$rc" > /tmp/publish/BUILD_STATUS.txt
+          fi
+          echo "$rc" > /tmp/publish/BUILD_RC.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify alpha.4 jars
+        if: steps.compile.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mod='/tmp/publish/Chainacobblemon-0.4.0-alpha.4+1.21.1.jar'
+          bridge='/tmp/publish/ChainaBridge-0.4.0-alpha.4.jar'
+          test -f "$mod" && test -f "$bridge"
+          rm -rf /tmp/modcheck && mkdir -p /tmp/modcheck
+          cd /tmp/modcheck
+          jar xf "$mod"
+          grep -q '0.4.0-alpha.4' fabric.mod.json
+          test -f com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.class
+          test -f com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class
+          cd /tmp
+          jar tf "$bridge" | grep -q 'com/andrewbristowx/chainabridge/ChainaBridgeMain.class'
+          unzip -p "$bridge" META-INF/MANIFEST.MF | grep -q 'Main-Class: com.andrewbristowx.chainabridge.ChainaBridgeMain'
+
+      - name: Upload authoritative alpha.4 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.4-with-ChainaBridge
+          path: /tmp/publish/*
+
+      - name: Publish build result to branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf dist/040a4
+          mkdir -p dist/040a4
+          cp -a /tmp/publish/. dist/040a4/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/040a4
+          git commit -m 'ci: publish 0.4.0-alpha.4 real Twitch build [skip ci]' || true
+          git push origin HEAD:release/0.4.0-alpha.4
+
+      - name: Fail workflow if compile failed
+        shell: bash
+        run: |
+          rc="$(cat /tmp/publish/BUILD_RC.txt)"
+          test "$rc" -eq 0

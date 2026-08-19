@@ -1,0 +1,14 @@
++        if (player == null) return false;
++        TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
++        return profile.linked && profile.twitchRolesKnown && profile.twitchVip;
++    }
++
++    boolean moderatorForIntegration(ServerPlayerEntity player) {
++        if (player == null) return false;
++        TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
++        return profile.linked && profile.twitchRolesKnown && profile.twitchModerator;
++    }
++
+     com.andrewbristowx.chainacobblemon.config.ChainacobblemonConfig.TwitchSettings settingsForIntegration() {
+         return settings();
+     }

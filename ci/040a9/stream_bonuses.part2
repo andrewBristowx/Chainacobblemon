@@ -1,0 +1,219 @@
++            Chainacobblemon.LOGGER.error("Could not install Chaina stream shiny modifier in Cobblemon", exception);
++        }
++    }
++
++    private static Object invoke(Object target, String name) {
++        if (target == null) return null;
++        try {
++            Method method = target.getClass().getMethod(name);
++            method.setAccessible(true);
++            return method.invoke(target);
++        } catch (Throwable ignored) {
++            return null;
++        }
++    }
++
++    private static boolean bool(Object value, boolean fallback) {
++        return value instanceof Boolean bool ? bool : fallback;
++    }
++
++    private com.andrewbristowx.chainacobblemon.config.ChainacobblemonConfig.TwitchSettings settings() {
++        return configManager.get().twitch;
++    }
++
++    private static Map<String, String> typeNames() {
++        LinkedHashMap<String, String> names = new LinkedHashMap<>();
++        names.put("normal", "NORMAL"); names.put("fire", "FUEGO"); names.put("water", "AGUA");
++        names.put("electric", "ELECTRICO"); names.put("grass", "PLANTA"); names.put("ice", "HIELO");
++        names.put("fighting", "LUCHA"); names.put("poison", "VENENO"); names.put("ground", "TIERRA");
++        names.put("flying", "VOLADOR"); names.put("psychic", "PSIQUICO"); names.put("bug", "BICHO");
++        names.put("rock", "ROCA"); names.put("ghost", "FANTASMA"); names.put("dragon", "DRAGON");
++        names.put("dark", "SINIESTRO"); names.put("steel", "ACERO"); names.put("fairy", "HADA");
++        return Collections.unmodifiableMap(names);
++    }
++
++    static final class StreamBonusState {
++        boolean active;
++        boolean jackpot;
++        String sessionId = "";
++        long rolledAtEpochSeconds;
++        List<Bonus> bonuses = new ArrayList<>();
++    }
++
++    static final class Bonus {
++        String kind = "";
++        String type = "";
++        double amount;
++        double secondary;
++    }
++}
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+index fdd4c27..ac2dbff 100644
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+@@ -54,6 +54,9 @@ public final class TwitchCommands {
+                                 .then(argument("jugador", EntityArgumentType.player())
+                                         .executes(context -> openAdminTarget(context.getSource(), service,
+                                                 EntityArgumentType.getPlayer(context, "jugador")))))
++                        .then(literal("bonus")
++                                .executes(context -> streamBonusStatus(context.getSource(), service))
++                                .then(literal("reroll").executes(context -> rerollStreamBonus(context.getSource(), service))))
+                         .then(test)));
+     }
+ 
+@@ -108,4 +111,19 @@ public final class TwitchCommands {
+         if (!ok) source.sendFeedback(() -> Text.literal("§cLos comandos test solo funcionan con twitch.mode=development."), false);
+         return ok ? 1 : 0;
+     }
++    private static int streamBonusStatus(ServerCommandSource source, TwitchService service) {
++        source.sendFeedback(() -> Text.literal("§d✦ BONUS STREAM §f" + service.streamBonusStatusLine()), false);
++        return 1;
++    }
++
++    private static int rerollStreamBonus(ServerCommandSource source, TwitchService service) {
++        boolean ok = service.rerollStreamBonusesForTesting();
++        if (!ok) {
++            source.sendFeedback(() -> Text.literal("§cSolo se pueden volver a sortear los bonus mientras Chaina está EN VIVO y el sistema está activo."), false);
++            return 0;
++        }
++        source.sendFeedback(() -> Text.literal("§d✦ Nuevos bonus del directo: §f" + service.streamBonusStatusLine()), false);
++        return 1;
++    }
++
+ }
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+index 174f84c..e1e168b 100644
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+@@ -23,6 +23,7 @@ public final class TwitchService {
+     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
+     private final ConfigManager configManager;
+     private final TwitchProfileStore store;
++    private final StreamBonusService streamBonuses;
+     private final Set<UUID> joinPromptSent = ConcurrentHashMap.newKeySet();
+     private final Set<UUID> linkFlowActive = ConcurrentHashMap.newKeySet();
+     private final Set<UUID> directLinkFlowActive = ConcurrentHashMap.newKeySet();
+@@ -39,10 +40,12 @@ public final class TwitchService {
+     public TwitchService(ConfigManager configManager) {
+         this.configManager = configManager;
+         this.store = new TwitchProfileStore(configManager.configDirectory());
++        this.streamBonuses = new StreamBonusService(configManager);
+     }
+ 
+     public void initialize() {
+         store.load();
++        streamBonuses.initialize();
+         rebuildBridge();
+         ServerTickEvents.END_SERVER_TICK.register(this::tick);
+         Chainacobblemon.LOGGER.info("Chaina Twitch Integration initialized in {} mode", settings().mode);
+@@ -57,6 +60,7 @@ public final class TwitchService {
+ 
+     public void serverStopping() {
+         store.save();
++        streamBonuses.save();
+         server = null;
+     }
+ 
+@@ -79,6 +83,7 @@ public final class TwitchService {
+         }
+         TwitchRankService.sync(player, profile, settings());
+         if (isBridgeMode()) syncPlayer(player, false, true);
++        sendHudSnapshot(player);
+     }
+ 
+     public void playerLeft(UUID playerId) {
+@@ -437,6 +442,7 @@ public final class TwitchService {
+     public String statusLine(ServerPlayerEntity player) {
+         TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+         return "Twitch=" + settings().mode + " | Chaina=" + (channelOnline ? "ONLINE" : "OFFLINE")
++                + " | bonus=" + (channelOnline && streamBonuses.active() ? streamBonuses.summary() : "inactivos")
+                 + " | vinculado=" + profile.linked + " | tier=" + profile.tier + " | rango=" + TwitchRankService.label(profile);
+     }
+ 
+@@ -447,6 +453,12 @@ public final class TwitchService {
+         snapshot.mode = settings().mode;
+         snapshot.broadcaster = settings().broadcasterLogin;
+         snapshot.channelOnline = channelOnline;
++        snapshot.channelKnown = channelKnown;
++        snapshot.streamHudEnabled = settings().streamHudEnabled;
++        snapshot.streamBonusesActive = channelKnown && channelOnline && streamBonuses.active();
++        snapshot.streamJackpot = snapshot.streamBonusesActive && streamBonuses.jackpot();
++        snapshot.streamSessionId = snapshot.streamBonusesActive ? streamBonuses.sessionId() : "";
++        snapshot.streamBonuses = snapshot.streamBonusesActive ? streamBonuses.hudLabels() : java.util.List.of();
+         snapshot.linked = profile.linked;
+         snapshot.twitchLogin = profile.twitchLogin;
+         snapshot.tier = profile.tier;
+@@ -514,6 +526,8 @@ public final class TwitchService {
+         boolean changed = !channelKnown || channelOnline != online;
+         channelKnown = true;
+         channelOnline = online;
++        boolean bonusChanged = streamBonuses.onChannelState(online);
++        if (server != null && (changed || forceAnnouncement || bonusChanged)) broadcastHudSnapshots();
+         if ((!changed && !forceAnnouncement) || server == null) return;
+         if (online && settings().announceOnline) {
+             String url = "https://twitch.tv/" + settings().broadcasterLogin;
+@@ -526,11 +540,47 @@ public final class TwitchService {
+                             .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, url))
+                             .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Clic para abrir el stream de Chaina"))));
+             server.getPlayerManager().broadcast(prefix.append(link), false);
++            if (streamBonuses.active()) {
++                String jackpot = streamBonuses.jackpot() ? "§6§l🌟 DIRECTO LEGENDARIO · " : "§d§l✦ BONUS DEL DIRECTO · ";
++                server.getPlayerManager().broadcast(Text.literal(jackpot + "§f" + streamBonuses.summary()), false);
++            }
+         } else if (!online && settings().announceOffline) {
+             server.getPlayerManager().broadcast(Text.literal("§5Chaina termino el directo. ¡Gracias por acompañarla!"), false);
+         }
+     }
+ 
++    private void sendHudSnapshot(ServerPlayerEntity player) {
++        if (player == null) return;
++        TwitchSnapshot snapshot = snapshot(player, "");
++        snapshot.visible = false;
++        snapshot.linkUrl = "";
++        snapshot.linkCode = "";
++        TwitchNetworking.send(player, snapshot);
++    }
++
++    private void broadcastHudSnapshots() {
++        MinecraftServer local = server;
++        if (local == null) return;
++        for (ServerPlayerEntity player : local.getPlayerManager().getPlayerList()) sendHudSnapshot(player);
++    }
++
++    StreamBonusService streamBonuses() {
++        return streamBonuses;
++    }
++
++    public boolean rerollStreamBonusesForTesting() {
++        boolean changed = streamBonuses.rerollForTesting(channelKnown && channelOnline);
++        if (changed) broadcastHudSnapshots();
++        return changed;
++    }
++
++    public String streamBonusStatusLine() {
++        if (!channelKnown) return "Chaina: comprobando Twitch · bonus pendientes";
++        if (!channelOnline) return "Chaina: OFFLINE · bonus inactivos";
++        if (!streamBonuses.active()) return "Chaina: EN VIVO · bonus desactivados";
++        return (streamBonuses.jackpot() ? "DIRECTO LEGENDARIO · " : "EN VIVO · ") + streamBonuses.summary();
++    }
++
+     private void rebuildBridge() {
+         this.bridge = new TwitchBridgeClient(settings());
+     }
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
+index b0c9ebf..5710084 100644
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSnapshot.java
+@@ -11,6 +11,12 @@ public final class TwitchSnapshot {
+     public String mode = "development";
+     public String broadcaster = "chainavt";
+     public boolean channelOnline;
++    public boolean channelKnown;
++    public boolean streamHudEnabled = true;
++    public boolean streamBonusesActive;
++    public boolean streamJackpot;
++    public String streamSessionId = "";
++    public java.util.List<String> streamBonuses = new java.util.ArrayList<>();
+     public boolean linked;
+     public String twitchLogin = "";
+     /** 0 = no sub, 1/2/3 = Twitch subscription tier. */

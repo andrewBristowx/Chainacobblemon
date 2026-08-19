@@ -1,0 +1,289 @@
+, parent);
++                }
++                for (String permission : permissions) {
++                    if (permission != null && !permission.isBlank()) {
++                        addNode(data, "net.luckperms.api.node.types.PermissionNode", permission);
++                    }
++                }
++            } catch (Throwable exception) {
++                throw new RuntimeException(exception);
++            }
++        };
++        Object result = modifyGroup.invoke(groupManager, name, action);
++        return result instanceof CompletableFuture<?> future ? future : CompletableFuture.completedFuture(null);
++    }
++
++    private static void addNode(Object data, String nodeClassName, String value) throws Exception {
++        Class<?> nodeClass = Class.forName(nodeClassName);
++        Object builder = nodeClass.getMethod("builder", String.class).invoke(null, value);
++        Object node = builder.getClass().getMethod("build").invoke(builder);
++        invokeCompatible(data, "add", node);
++    }
++
++    private static Set<String> queryGroups(ServerPlayerEntity player) {
++        Object api = luckPerms;
++        if (api == null) return Set.of();
++        try {
++            Object userManager = api.getClass().getMethod("getUserManager").invoke(api);
++            Object user = userManager.getClass().getMethod("getUser", UUID.class).invoke(userManager, player.getUuid());
++            if (user == null) return Set.of();
++            Class<?> queryOptions = Class.forName("net.luckperms.api.query.QueryOptions");
++            Object options = queryOptions.getMethod("nonContextual").invoke(null);
++            Object inherited = invokeCompatible(user, "getInheritedGroups", options);
++            if (!(inherited instanceof Collection<?> collection)) return Set.of();
++            LinkedHashSet<String> names = new LinkedHashSet<>();
++            for (Object group : collection) {
++                Object rawName = group.getClass().getMethod("getName").invoke(group);
++                if (rawName != null) names.add(rawName.toString().toLowerCase(Locale.ROOT));
++            }
++            return Collections.unmodifiableSet(names);
++        } catch (Throwable exception) {
++            Chainacobblemon.LOGGER.debug("Could not read LuckPerms groups for {}", player.getGameProfile().getName(), exception);
++            return Set.of();
++        }
++    }
++
++    private static String normalizeGroup(String value) {
++        if (value == null) return "";
++        return value.strip().toLowerCase(Locale.ROOT).replace(' ', '_');
++    }
++
++    private static Object invokeCompatible(Object target, String name, Object argument) throws Exception {
++        for (Method method : target.getClass().getMethods()) {
++            if (!method.getName().equals(name) || method.getParameterCount() != 1) continue;
++            if (!method.getParameterTypes()[0].isInstance(argument)) continue;
++            return method.invoke(target, argument);
++        }
++        throw new NoSuchMethodException(target.getClass().getName() + "#" + name);
++    }
++
++    private record CachedGroups(long loadedAt, Set<String> groups) { }
++}
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java	1970-01-01 00:00:00.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java	2026-08-18 20:35:48.589504783 +0000
+@@ -0,0 +1,90 @@
++package com.andrewbristowx.chainacobblemon.twitch;
++
++import net.minecraft.server.network.ServerPlayerEntity;
++import net.minecraft.text.MutableText;
++import net.minecraft.text.Style;
++import net.minecraft.text.Text;
++
++import java.util.Locale;
++import java.util.Set;
++
++/** Shared rank presentation used by Styled Player List and Styled Chat. */
++public final class RankDisplayService {
++    private static final int ADMIN = 0xFF5CBF;
++    private static final int ADMIN_NAME = 0xFFB2E2;
++    private static final int MOD = 0x55DFFF;
++    private static final int MOD_NAME = 0xB9F4FF;
++    private static final int VIP = 0xFFD35C;
++    private static final int VIP_NAME = 0xFFE8A3;
++    private static final int DONOR = 0x79E6B1;
++    private static final int DONOR_NAME = 0xB8F4D2;
++    private static final int PLAYER = 0xA7A0B6;
++    private static final int PLAYER_NAME = 0xF0EDF5;
++    private static final int SUB_1 = 0xC985FF;
++    private static final int SUB_2 = 0xFF77C9;
++    private static final int SUB_3 = 0xFFD166;
++
++    private RankDisplayService() { }
++
++    public static Text styledName(ServerPlayerEntity player, TwitchService twitch) {
++        if (player == null) return Text.literal("Jugador").setStyle(Style.EMPTY.withColor(PLAYER_NAME));
++        Set<String> groups = LuckPermsBootstrap.inheritedGroups(player);
++        Primary primary = primary(groups);
++        int tier = twitch == null ? 0 : twitch.tierForIntegration(player);
++        if (tier <= 0) tier = tierFromGroups(groups, twitch);
++
++        MutableText out = Text.empty();
++        out.append(tag(primary.label, primary.color));
++        out.append(Text.literal(" "));
++        out.append(Text.literal(player.getGameProfile().getName()).setStyle(Style.EMPTY.withColor(primary.nameColor)));
++        if (tier > 0) {
++            out.append(Text.literal(" "));
++            out.append(tag("SUB " + roman(tier), subColor(tier)));
++        }
++        return out;
++    }
++
++    private static Text tag(String label, int color) {
++        return Text.literal("[" + label + "]").setStyle(Style.EMPTY.withColor(color).withBold(true));
++    }
++
++    private static Primary primary(Set<String> groups) {
++        if (hasAny(groups, "owner", "chaina", "admin", "administrator")) return new Primary("ADMIN", ADMIN, ADMIN_NAME);
++        if (hasAny(groups, "mod", "moderador", "moderator")) return new Primary("MOD", MOD, MOD_NAME);
++        if (hasAny(groups, "vip")) return new Primary("VIP", VIP, VIP_NAME);
++        if (hasAny(groups, "donador", "donor")) return new Primary("DONADOR", DONOR, DONOR_NAME);
++        return new Primary("JUGADOR", PLAYER, PLAYER_NAME);
++    }
++
++    private static int tierFromGroups(Set<String> groups, TwitchService twitch) {
++        if (twitch == null) return 0;
++        var settings = twitch.settingsForIntegration();
++        if (groups.contains(normalize(settings.tier3Group))) return 3;
++        if (groups.contains(normalize(settings.tier2Group))) return 2;
++        if (groups.contains(normalize(settings.tier1Group))) return 1;
++        return 0;
++    }
++
++    private static boolean hasAny(Set<String> groups, String... names) {
++        for (String name : names) if (groups.contains(normalize(name))) return true;
++        return false;
++    }
++
++    private static String normalize(String value) {
++        return value == null ? "" : value.toLowerCase(Locale.ROOT).replace(' ', '_');
++    }
++
++    private static String roman(int tier) {
++        return switch (tier) {
++            case 3 -> "III";
++            case 2 -> "II";
++            default -> "I";
++        };
++    }
++
++    private static int subColor(int tier) {
++        return tier >= 3 ? SUB_3 : tier == 2 ? SUB_2 : SUB_1;
++    }
++
++    private record Primary(String label, int color, int nameColor) { }
++}
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledChatIntegration.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledChatIntegration.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledChatIntegration.java	1970-01-01 00:00:00.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledChatIntegration.java	2026-08-18 20:38:03.912425195 +0000
+@@ -0,0 +1,73 @@
++package com.andrewbristowx.chainacobblemon.twitch;
++
++import com.andrewbristowx.chainacobblemon.Chainacobblemon;
++import com.andrewbristowx.chainacobblemon.config.ConfigManager;
++import com.google.gson.Gson;
++import com.google.gson.GsonBuilder;
++import com.google.gson.JsonObject;
++import com.google.gson.JsonParser;
++import net.fabricmc.loader.api.FabricLoader;
++import net.minecraft.server.MinecraftServer;
++
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardCopyOption;
++
++/** One-time, non-destructive Styled Chat setup for the Chaina rank presentation. */
++public final class StyledChatIntegration {
++    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
++
++    private StyledChatIntegration() { }
++
++    public static void serverStarted(MinecraftServer server, ConfigManager configManager) {
++        if (!configManager.get().twitch.styledChatAutoConfigure) return;
++        if (!FabricLoader.getInstance().isModLoaded("styledchat")) {
++            Chainacobblemon.LOGGER.info("Styled Chat not detected; skipping automatic Chaina chat format");
++            return;
++        }
++
++        try {
++            Path configDir = FabricLoader.getInstance().getConfigDir();
++            Path file = configDir.resolve("styled-chat.json");
++            Path marker = configManager.configDirectory().resolve("styledchat-auto-installed.json");
++            if (Files.exists(marker)) {
++                server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledchat reload");
++                return;
++            }
++            if (Files.notExists(file)) {
++                Chainacobblemon.LOGGER.warn("Styled Chat is loaded but {} does not exist yet; leaving it untouched", file);
++                return;
++            }
++
++            Path backup = configDir.resolve("styled-chat.json.chaina-backup");
++            if (Files.notExists(backup)) Files.copy(file, backup, StandardCopyOption.COPY_ATTRIBUTES);
++
++            JsonObject root = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
++            JsonObject defaults = object(root, "default");
++            defaults.addProperty("display_name", "%chainacobblemon:styled_name%");
++            JsonObject formats = object(defaults, "message_formats");
++            formats.addProperty("chat", "${player} <dark_gray>»</dark_gray> ${message}");
++            Files.writeString(file, GSON.toJson(root), StandardCharsets.UTF_8);
++
++            JsonObject markerData = new JsonObject();
++            markerData.addProperty("installed", true);
++            markerData.addProperty("version", 1);
++            markerData.addProperty("backup", backup.getFileName().toString());
++            markerData.addProperty("note", "Remove this marker only if you want Chainacobblemon to apply the default Styled Chat format again.");
++            Files.writeString(marker, GSON.toJson(markerData), StandardCharsets.UTF_8);
++
++            server.getCommandManager().executeWithPrefix(server.getCommandSource().withSilent(), "styledchat reload");
++            Chainacobblemon.LOGGER.info("Styled Chat configured for Chaina ranks; original saved as {}", backup);
++        } catch (Throwable exception) {
++            Chainacobblemon.LOGGER.warn("Could not auto-configure Styled Chat; existing chat configuration remains usable", exception);
++        }
++    }
++
++    private static JsonObject object(JsonObject parent, String key) {
++        if (parent.has(key) && parent.get(key).isJsonObject()) return parent.getAsJsonObject(key);
++        JsonObject created = new JsonObject();
++        parent.add(key, created);
++        return created;
++    }
++}
+diff -ruN alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java
+--- alpha10src/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java	2026-08-18 19:50:53.000000000 +0000
++++ alpha11work/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.java	2026-08-18 20:36:21.944753912 +0000
+@@ -2,6 +2,7 @@
+ 
+ import com.andrewbristowx.chainacobblemon.Chainacobblemon;
+ import com.andrewbristowx.chainacobblemon.config.ConfigManager;
++import com.andrewbristowx.chainacobblemon.visual.VisualAssetService;
+ import com.google.gson.Gson;
+ import com.google.gson.GsonBuilder;
+ import com.google.gson.JsonObject;
+@@ -14,18 +15,24 @@
+ import net.minecraft.util.Formatting;
+ import net.minecraft.util.Identifier;
+ 
+-import java.io.IOException;
+ import java.nio.charset.StandardCharsets;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.StandardCopyOption;
+ import java.util.List;
++import java.util.concurrent.CompletableFuture;
+ 
+ /** Optional server-side integration with Styled Player List + Text Placeholder API. */
+ public final class StyledPlayerListIntegration {
+     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+     private static final String STYLE_ID = "chaina";
++    private static final int STYLE_VERSION = 2;
+     private static final String STYLED_PLAYER_LIST_MOD = "styledplayerlist";
++
++    // Current ChainaVT Twitch subscription emotes chosen for the TAB decoration.
++    private static final String CUTE_EMOTE_URL = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_e810ce339ab04b278cbe0546e3c6a83c/static/light/3.0";
++    private static final String AWA_EMOTE_URL = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_493077d79e884b40943bd86bf21a00bf/static/light/3.0";
++
+     private static volatile boolean active;
+     private static volatile TwitchService twitch;
+ 
+@@ -41,9 +48,11 @@
+         register("stream_bonus_3", () -> bonusText(2));
+         register("stream_bonus_4", () -> bonusText(3));
+         register("twitch_channel", () -> Text.literal("twitch.tv/" + broadcaster()).formatted(Formatting.LIGHT_PURPLE));
++        Placeholders.register(Identifier.of(Chainacobblemon.MOD_ID, "styled_name"), (context, argument) ->
++                PlaceholderResult.value(RankDisplayService.styledName(context.player(), twitch)));
+     }
+ 
+-    public static void serverStarted(MinecraftServer server, ConfigManager configManager) {
++    public static void serverStarted(MinecraftServer server, ConfigManager configManager, VisualAssetService assets) {
+         active = false;
+         if (!configManager.get().twitch.styledPlayerListAutoConfigure) return;
+         if (!FabricLoader.getInstance().isModLoaded(STYLED_PLAYER_LIST_MOD)) {
+@@ -59,37 +68,50 @@
+             Path marker = configManager.configDirectory().resolve("styledplayerlist-auto-installed.json");
+ 
+             Files.createDirectories(stylesDir);
+-            if (Files.notExists(styleFile)) {
++            JsonObject markerData = readObject(marker);
++            int installedStyleVersion = markerData.has("style_version") ? markerData.get("style_versi

@@ -1,0 +1,90 @@
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+@@ -3,10 +3,12 @@
+ import com.mojang.brigadier.CommandDispatcher;
+ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
++import net.minecraft.command.argument.EntityArgumentType;
+ import net.minecraft.server.command.ServerCommandSource;
+ import net.minecraft.server.network.ServerPlayerEntity;
+ import net.minecraft.text.Text;
+ 
++import static net.minecraft.server.command.CommandManager.argument;
+ import static net.minecraft.server.command.CommandManager.literal;
+ 
+ public final class TwitchCommands {
+@@ -18,14 +20,15 @@
+ 
+     private static void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher, TwitchService service) {
+         dispatcher.register(literal("twitch")
+-                .executes(context -> playerAction(context.getSource(), service, "open"))
+-                .then(literal("estado").executes(context -> playerAction(context.getSource(), service, "status")))
+-                .then(literal("status").executes(context -> playerAction(context.getSource(), service, "status")))
+-                .then(literal("vincular").executes(context -> playerAction(context.getSource(), service, "link")))
+-                .then(literal("link").executes(context -> playerAction(context.getSource(), service, "link")))
++                .executes(context -> openAdminSelfOrExplain(context.getSource(), service))
++                // This is intentionally the only normal-player Twitch command. It is invoked by the private chat prompt.
+                 .then(literal("vincular_directo").executes(context -> playerAction(context.getSource(), service, "link_direct")))
+-                .then(literal("sync").executes(context -> playerAction(context.getSource(), service, "sync")))
+-                .then(literal("desvincular").executes(context -> playerAction(context.getSource(), service, "unlink"))));
++                .then(literal("admin")
++                        .requires(source -> source.hasPermissionLevel(2))
++                        .executes(context -> openAdminSelf(context.getSource(), service))
++                        .then(argument("jugador", EntityArgumentType.player())
++                                .executes(context -> openAdminTarget(context.getSource(), service,
++                                        EntityArgumentType.getPlayer(context, "jugador"))))));
+ 
+         LiteralArgumentBuilder<ServerCommandSource> test = literal("test")
+                 .requires(source -> source.hasPermissionLevel(2))
+@@ -39,17 +42,49 @@
+ 
+         dispatcher.register(literal("chaina")
+                 .then(literal("twitch")
+-                        .executes(context -> playerAction(context.getSource(), service, "open"))
++                        .requires(source -> source.hasPermissionLevel(2))
++                        .executes(context -> openAdminSelf(context.getSource(), service))
+                         .then(literal("status").executes(context -> {
+                             ServerPlayerEntity player = context.getSource().getPlayer();
+                             if (player == null) return 0;
+                             context.getSource().sendFeedback(() -> Text.literal(service.statusLine(player)), false);
+                             return 1;
+                         }))
+-                        .then(literal("sync").executes(context -> playerAction(context.getSource(), service, "sync")))
++                        .then(literal("admin")
++                                .then(argument("jugador", EntityArgumentType.player())
++                                        .executes(context -> openAdminTarget(context.getSource(), service,
++                                                EntityArgumentType.getPlayer(context, "jugador")))))
+                         .then(test)));
+     }
+ 
++    private static int openAdminSelfOrExplain(ServerCommandSource source, TwitchService service) {
++        if (!source.hasPermissionLevel(2)) {
++            source.sendFeedback(() -> Text.literal("§d✦ CHAINA × TWITCH §7La vinculación se gestiona desde el aviso privado del chat."), false);
++            return 1;
++        }
++        return openAdminSelf(source, service);
++    }
++
++    private static int openAdminSelf(ServerCommandSource source, TwitchService service) {
++        ServerPlayerEntity admin = source.getPlayer();
++        if (admin == null) {
++            source.sendFeedback(() -> Text.literal("Este panel debe abrirse como jugador administrador."), false);
++            return 0;
++        }
++        service.openAdmin(admin, admin, "Panel administrativo Twitch.");
++        return 1;
++    }
++
++    private static int openAdminTarget(ServerCommandSource source, TwitchService service, ServerPlayerEntity target) {
++        ServerPlayerEntity admin = source.getPlayer();
++        if (admin == null) {
++            source.sendFeedback(() -> Text.literal("Este panel debe abrirse como jugador administrador."), false);
++            return 0;
++        }
++        service.openAdmin(admin, target, "Estado de " + target.getGameProfile().getName());
++        return 1;
++    }
++
+     private static int playerAction(ServerCommandSource source, TwitchService service, String action) {
+         ServerPlayerEntity player = source.getPlayer();
+         if (player == null) {

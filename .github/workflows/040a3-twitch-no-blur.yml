@@ -1,0 +1,145 @@
+name: Build Chainacobblemon 0.4.0-alpha.3 Twitch No Blur
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.3
+    paths-ignore:
+      - 'dist/040a3/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.31 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          test -f dist/alpha31/Chainacobblemon-0.3.0-alpha.31-source.zip
+          unzip -q dist/alpha31/Chainacobblemon-0.3.0-alpha.31-source.zip -d /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.31+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Reapply Twitch Phase 1
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a1/hotfix.py
+          grep -q 'mod_version=0.4.0-alpha.1+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Reapply alpha.2 Twitch UI links
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a2/hotfix.py
+          grep -q 'mod_version=0.4.0-alpha.2+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Apply alpha.3 hard no-blur fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/040a3/hotfix.py
+          root=/tmp/chainacobblemon
+          screen="$root/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java"
+          grep -q 'mod_version=0.4.0-alpha.3+1.21.1' "$root/gradle.properties"
+          grep -q 'protected void applyBlur(float delta)' "$screen"
+          grep -q 'public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta)' "$screen"
+          grep -q 'public void renderInGameBackground(DrawContext context)' "$screen"
+
+      - name: Compile and package 0.4.0-alpha.3
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/chainacobblemon
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon 2>&1 | tee /tmp/040a3-build.log
+          rc=${PIPESTATUS[0]}
+
+          rm -rf /tmp/publish
+          mkdir -p /tmp/publish
+          echo '${{ github.run_id }}' > /tmp/publish/RUN_ID.txt
+          cp /tmp/040a3-build.log /tmp/publish/BUILD_LOG.txt
+          cp src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java /tmp/publish/TwitchScreen.java
+
+          if [ "$rc" -eq 0 ]; then
+            jarfile="$(find build/libs -maxdepth 1 -type f -name '*0.4.0-alpha.3*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+            if [ -z "$jarfile" ]; then
+              echo 'FAILURE: build returned 0 but remapped 0.4.0-alpha.3 jar was not found.' > /tmp/publish/BUILD_STATUS.txt
+              rc=88
+            else
+              cp "$jarfile" /tmp/publish/Chainacobblemon-0.4.0-alpha.3+1.21.1.jar
+              zip -qr /tmp/publish/Chainacobblemon-0.4.0-alpha.3-source.zip . -x './.gradle/*' './build/*'
+              cd /tmp/publish
+              sha256sum Chainacobblemon-0.4.0-alpha.3+1.21.1.jar Chainacobblemon-0.4.0-alpha.3-source.zip > SHA256SUMS-0.4.0-alpha.3.txt
+              echo 'SUCCESS' > BUILD_STATUS.txt
+            fi
+          else
+            echo "FAILURE rc=$rc" > /tmp/publish/BUILD_STATUS.txt
+          fi
+          echo "$rc" > /tmp/publish/BUILD_RC.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify 0.4.0-alpha.3 output
+        if: steps.compile.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jarfile='/tmp/publish/Chainacobblemon-0.4.0-alpha.3+1.21.1.jar'
+          test -f "$jarfile"
+          rm -rf /tmp/jarcheck && mkdir -p /tmp/jarcheck
+          cd /tmp/jarcheck
+          jar xf "$jarfile"
+          grep -q '0.4.0-alpha.3' fabric.mod.json
+          test -f com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class
+          javap -p com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class > /tmp/twitchscreen-javap.txt
+          # Production/remapped Fabric jars use intermediary names for Minecraft overrides.
+          grep -q 'method_57734(float)' /tmp/twitchscreen-javap.txt
+          grep -q 'method_25420' /tmp/twitchscreen-javap.txt
+          grep -q 'method_52752' /tmp/twitchscreen-javap.txt
+
+      - name: Upload authoritative artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.3
+          path: /tmp/publish/*
+
+      - name: Publish build result to branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf dist/040a3
+          mkdir -p dist/040a3
+          cp -a /tmp/publish/. dist/040a3/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/040a3
+          git commit -m 'ci: publish 0.4.0-alpha.3 build [skip ci]' || true
+          git push origin HEAD:release/0.4.0-alpha.3
+
+      - name: Fail workflow if compile failed
+        shell: bash
+        run: |
+          rc="$(cat /tmp/publish/BUILD_RC.txt)"
+          test "$rc" -eq 0

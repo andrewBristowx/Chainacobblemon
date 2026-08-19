@@ -1,0 +1,186 @@
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+@@ -91,14 +91,27 @@
+     public void handleAction(ServerPlayerEntity player, String action) {
+         if (player == null) return;
+         String value = action == null ? "open" : action.strip().toLowerCase(Locale.ROOT);
++        if (value.startsWith("admin_")) {
++            handleAdminAction(player, value);
++            return;
++        }
+         switch (value) {
+-            case "open", "status" -> open(player, "");
+-            case "link" -> startLink(player);
+             case "link_direct" -> startDirectLink(player);
+-            case "sync" -> syncPlayer(player, true);
+             case "link_poll" -> pollLink(player);
+-            case "unlink" -> unlink(player);
+-            default -> open(player, "Accion Twitch desconocida: " + value);
++            case "open", "status", "link", "sync", "unlink" -> {
++                if (!isAdmin(player)) {
++                    sendDirectError(player, "El panel Twitch es exclusivo para administradores.");
++                    return;
++                }
++                switch (value) {
++                    case "open", "status" -> openAdmin(player, player, "Panel administrativo Twitch.");
++                    case "link" -> startLink(player);
++                    case "sync" -> adminSync(player, player);
++                    case "unlink" -> adminUnlink(player, player);
++                    default -> { }
++                }
++            }
++            default -> sendDirectError(player, "Acción Twitch desconocida.");
+         }
+     }
+ 
+@@ -106,6 +119,110 @@
+         TwitchNetworking.send(player, snapshot(player, message));
+     }
+ 
++    public void openAdmin(ServerPlayerEntity admin, ServerPlayerEntity target, String message) {
++        if (admin == null || target == null) return;
++        if (!isAdmin(admin)) {
++            sendDirectError(admin, "No tienes permiso para abrir el panel Twitch de administración.");
++            return;
++        }
++        TwitchNetworking.send(admin, adminSnapshot(target, message));
++    }
++
++    private void handleAdminAction(ServerPlayerEntity admin, String value) {
++        if (!isAdmin(admin)) {
++            sendDirectError(admin, "No tienes permiso para administrar Twitch.");
++            return;
++        }
++        int separator = value.indexOf(':');
++        if (separator < 0 || separator == value.length() - 1) {
++            sendDirectError(admin, "Acción administrativa Twitch inválida.");
++            return;
++        }
++        UUID targetId;
++        try {
++            targetId = UUID.fromString(value.substring(separator + 1));
++        } catch (IllegalArgumentException exception) {
++            sendDirectError(admin, "Jugador Twitch inválido.");
++            return;
++        }
++        ServerPlayerEntity target = server == null ? null : server.getPlayerManager().getPlayer(targetId);
++        if (target == null) {
++            admin.sendMessage(Text.literal("✦ CHAINA × TWITCH ").formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD)
++                    .append(Text.literal("Ese jugador ya no está conectado.").formatted(Formatting.RED)), false);
++            return;
++        }
++        String operation = value.substring(0, separator);
++        switch (operation) {
++            case "admin_sync" -> adminSync(admin, target);
++            case "admin_unlink" -> adminUnlink(admin, target);
++            case "admin_prompt" -> adminPrompt(admin, target);
++            default -> sendDirectError(admin, "Acción administrativa Twitch desconocida.");
++        }
++    }
++
++    private void adminSync(ServerPlayerEntity admin, ServerPlayerEntity target) {
++        if (isDevelopmentMode()) {
++            TwitchProfile profile = store.getOrCreate(target.getUuid(), target.getGameProfile().getName());
++            profile.touch();
++            store.save();
++            openAdmin(admin, target, "Estado de prueba actualizado.");
++            return;
++        }
++        if (bridge == null || !bridge.configured()) {
++            openAdmin(admin, target, "ChainaBridge no está configurado.");
++            return;
++        }
++        bridge.playerStatus(target.getUuidAsString()).whenComplete((status, error) -> execute(() -> {
++            if (error != null) {
++                openAdmin(admin, target, "No se pudo actualizar: " + safeError(error));
++                return;
++            }
++            boolean changed = applyBridgeStatus(target, status);
++            openAdmin(admin, target, changed ? "Estado del jugador actualizado." : "El jugador ya estaba sincronizado.");
++        }));
++    }
++
++    private void adminUnlink(ServerPlayerEntity admin, ServerPlayerEntity target) {
++        linkFlowActive.remove(target.getUuid());
++        directLinkFlowActive.remove(target.getUuid());
++        if (isDevelopmentMode()) {
++            setUnlinked(target);
++            target.sendMessage(Text.literal("✦ CHAINA × TWITCH ").formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD)
++                    .append(Text.literal("Un administrador desvinculó tu cuenta de Twitch.").formatted(Formatting.GRAY)), false);
++            openAdmin(admin, target, "Cuenta Twitch desvinculada.");
++            return;
++        }
++        if (bridge == null || !bridge.configured()) {
++            openAdmin(admin, target, "No se puede desvincular: ChainaBridge no está configurado.");
++            return;
++        }
++        bridge.unlink(target.getUuidAsString()).whenComplete((ok, error) -> execute(() -> {
++            if (error != null || !Boolean.TRUE.equals(ok)) {
++                openAdmin(admin, target, "No se pudo desvincular" + (error == null ? "." : ": " + safeError(error)));
++                return;
++            }
++            setUnlinked(target);
++            target.sendMessage(Text.literal("✦ CHAINA × TWITCH ").formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD)
++                    .append(Text.literal("Un administrador desvinculó tu cuenta de Twitch.").formatted(Formatting.GRAY)), false);
++            openAdmin(admin, target, "Cuenta Twitch desvinculada.");
++        }));
++    }
++
++    private void adminPrompt(ServerPlayerEntity admin, ServerPlayerEntity target) {
++        TwitchProfile profile = store.getOrCreate(target.getUuid(), target.getGameProfile().getName());
++        if (profile.linked) {
++            openAdmin(admin, target, "El jugador ya está vinculado. Desvincúlalo primero para reenviar el aviso.");
++            return;
++        }
++        joinPromptSent.remove(target.getUuid());
++        sendLinkPrompt(target);
++        openAdmin(admin, target, "Aviso privado de vinculación reenviado.");
++    }
++
++    private boolean isAdmin(ServerPlayerEntity player) {
++        return player != null && player.hasPermissionLevel(2);
++    }
++
+     public void startLink(ServerPlayerEntity player) {
+         startLink(player, false);
+     }
+@@ -278,6 +395,13 @@
+     }
+ 
+     private void applyUnlinked(ServerPlayerEntity player, String message) {
++        setUnlinked(player);
++        if (isAdmin(player)) openAdmin(player, player, message);
++        else player.sendMessage(Text.literal("✦ CHAINA × TWITCH ").formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD)
++                .append(Text.literal(message).formatted(Formatting.GRAY)), false);
++    }
++
++    private void setUnlinked(ServerPlayerEntity player) {
+         TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+         profile.linked = false;
+         profile.twitchUserId = "";
+@@ -286,7 +410,6 @@
+         profile.touch();
+         store.save();
+         TwitchRankService.sync(player, profile, settings());
+-        open(player, message);
+     }
+ 
+     public boolean debugSetTier(ServerPlayerEntity player, int tier) {
+@@ -333,6 +456,17 @@
+         return snapshot;
+     }
+ 
++    private TwitchSnapshot adminSnapshot(ServerPlayerEntity target, String message) {
++        TwitchSnapshot snapshot = snapshot(target, message);
++        snapshot.visible = true;
++        snapshot.adminView = true;
++        snapshot.targetUuid = target.getUuidAsString();
++        snapshot.targetName = target.getGameProfile().getName();
++        snapshot.linkUrl = "";
++        snapshot.linkCode = "";
++        return snapshot;
++    }
++
+     private void tick(MinecraftServer minecraftServer) {
+         if (server == null) server = minecraftServer;
+         ticks++;

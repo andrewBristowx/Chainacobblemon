@@ -1,0 +1,259 @@
+diff --git a/gradle.properties b/gradle.properties
+index aafc75f..fc68dd4 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -11,6 +11,6 @@ fabric_kotlin_version=1.13.13+kotlin.2.4.10
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.8+1.21.1
++mod_version=0.4.0-alpha.9+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+diff --git a/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java b/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java
+index 8a75967..dbde50e 100644
+--- a/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java
++++ b/src/client/java/com/andrewbristowx/chainacobblemon/client/ChainacobblemonClient.java
+@@ -19,6 +19,7 @@ import com.andrewbristowx.chainacobblemon.client.gacha.GachaClient;
+ import com.andrewbristowx.chainacobblemon.client.tower.TowerRouletteClient;
+ import com.andrewbristowx.chainacobblemon.client.events.EventClient;
+ import com.andrewbristowx.chainacobblemon.client.twitch.TwitchClient;
++import com.andrewbristowx.chainacobblemon.client.twitch.TwitchStatusHud;
+ import com.andrewbristowx.chainacobblemon.registry.ModRegistries;
+ import net.fabricmc.api.ClientModInitializer;
+ import net.minecraft.client.render.block.entity.BlockEntityRendererFactories;
+@@ -50,6 +51,7 @@ public final class ChainacobblemonClient implements ClientModInitializer {
+         TowerRouletteClient.initialize();
+         EventClient.initialize();
+         TwitchClient.initialize();
++        TwitchStatusHud.initialize();
+         Chainacobblemon.LOGGER.info("Chainacobblemon client layer initialized with GachaMachineRenderer");
+     }
+ 
+diff --git a/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java b/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java
+index 8f0e1af..8255164 100644
+--- a/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java
++++ b/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java
+@@ -6,6 +6,7 @@ import com.andrewbristowx.chainacobblemon.twitch.TwitchNetworking.TwitchSnapshot
+ import com.andrewbristowx.chainacobblemon.twitch.TwitchSnapshot;
+ import com.google.gson.Gson;
+ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
++import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+ import net.minecraft.client.MinecraftClient;
+ import net.minecraft.client.gui.screen.ConfirmLinkScreen;
+ 
+@@ -16,6 +17,8 @@ public final class TwitchClient {
+     private TwitchClient() { }
+ 
+     public static void initialize() {
++        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> latest = null);
++        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> latest = null);
+         ClientPlayNetworking.registerGlobalReceiver(TwitchSnapshotPayload.ID, (payload, context) -> context.client().execute(() -> {
+             try {
+                 TwitchSnapshot snapshot = GSON.fromJson(payload.json(), TwitchSnapshot.class);
+diff --git a/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchStatusHud.java b/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchStatusHud.java
+new file mode 100644
+index 0000000..1a1fcf9
+--- /dev/null
++++ b/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchStatusHud.java
+@@ -0,0 +1,63 @@
++package com.andrewbristowx.chainacobblemon.client.twitch;
++
++import com.andrewbristowx.chainacobblemon.twitch.TwitchSnapshot;
++import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
++import net.minecraft.client.MinecraftClient;
++import net.minecraft.client.gui.DrawContext;
++
++import java.util.ArrayList;
++import java.util.List;
++
++/** Compact top-center Chaina live/offline indicator and current stream bonuses. */
++public final class TwitchStatusHud {
++    private TwitchStatusHud() { }
++
++    public static void initialize() {
++        HudRenderCallback.EVENT.register((context, tickCounter) -> render(context));
++    }
++
++    private static void render(DrawContext context) {
++        MinecraftClient client = MinecraftClient.getInstance();
++        TwitchSnapshot snapshot = TwitchClient.latest();
++        if (client.player == null || client.options.hudHidden || snapshot == null || !snapshot.enabled || !snapshot.streamHudEnabled) return;
++
++        String title;
++        int accent;
++        if (!snapshot.channelKnown) {
++            title = "CHAINA · COMPROBANDO TWITCH";
++            accent = 0xFFAAA0B3;
++        } else if (snapshot.channelOnline) {
++            title = snapshot.streamJackpot ? "● CHAINA EN VIVO · DIRECTO LEGENDARIO" : "● CHAINA EN VIVO";
++            accent = 0xFFFF536E;
++        } else {
++            title = "● CHAINA OFFLINE";
++            accent = 0xFFAAA0B3;
++        }
++
++        List<String> lines = new ArrayList<>();
++        lines.add(title);
++        if (snapshot.channelOnline && snapshot.streamBonusesActive && snapshot.streamBonuses != null && !snapshot.streamBonuses.isEmpty()) {
++            lines.add(String.join("   ", snapshot.streamBonuses));
++        }
++
++        int textWidth = 0;
++        for (String line : lines) textWidth = Math.max(textWidth, client.textRenderer.getWidth(line));
++        int w = Math.min(context.getScaledWindowWidth() - 24, textWidth + 22);
++        int h = lines.size() == 1 ? 24 : 38;
++        int x = (context.getScaledWindowWidth() - w) / 2;
++        int y = 7;
++        context.fill(x, y, x + w, y + h, 0xC819111F);
++        context.fill(x, y, x + w, y + 2, accent);
++        context.drawCenteredTextWithShadow(client.textRenderer, lines.get(0), x + w / 2, y + 8, accent);
++        if (lines.size() > 1) {
++            String bonuses = lines.get(1);
++            if (client.textRenderer.getWidth(bonuses) > w - 12) {
++                while (bonuses.length() > 4 && client.textRenderer.getWidth(bonuses + "…") > w - 12) {
++                    bonuses = bonuses.substring(0, bonuses.length() - 1);
++                }
++                bonuses += "…";
++            }
++            context.drawCenteredTextWithShadow(client.textRenderer, bonuses, x + w / 2, y + 23, 0xFFFFD8EA);
++        }
++    }
++}
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java b/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+index 66d1300..068c6d7 100644
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+@@ -62,7 +62,7 @@ import org.slf4j.LoggerFactory;
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.8+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.9+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+@@ -211,4 +211,5 @@ public final class Chainacobblemon implements ModInitializer {
+     public static RewardWalletService rewardWalletService() { return REWARD_WALLET; }
+     public static BattlePassService battlePassService() { return BATTLE_PASS; }
+     public static DailyRewardService dailyRewardService() { return DAILY_REWARDS; }
++    public static TwitchService twitchService() { return TWITCH_SERVICE; }
+ }
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java b/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+index df74ec5..8ab46a7 100644
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+@@ -1,7 +1,7 @@
+ package com.andrewbristowx.chainacobblemon.config;
+ 
+ public final class ChainacobblemonConfig {
+-    public int configVersion = 12;
++    public int configVersion = 13;
+     public boolean debugLogging = false;
+     public boolean playerDataEnabled = true;
+     public HubSettings hub = new HubSettings();
+@@ -29,7 +29,7 @@ public final class ChainacobblemonConfig {
+         twitch.normalize();
+         migrateLegacyRankGroups();
+         if (previousConfigVersion < 10) migrateTreasureTicketRewards();
+-        configVersion = 12;
++        configVersion = 13;
+     }
+ 
+     /** 0.5.0 adds the Tesoros de Chaina ticket without deleting customized daily rewards. */
+@@ -73,6 +73,22 @@ public final class ChainacobblemonConfig {
+         public int channelPollSeconds = 60;
+         public boolean announceOnline = true;
+         public boolean announceOffline = true;
++        /** Compact Twitch status indicator rendered at the top-center of the Minecraft HUD. */
++        public boolean streamHudEnabled = true;
++        /** Roll persistent random gameplay bonuses once per Chaina live session. */
++        public boolean streamBonusesEnabled = true;
++        public int streamBonusCount = 3;
++        public double streamJackpotChance = 0.05D;
++        /** Chance that a natural spawn is converted to the randomly featured elemental type. */
++        public double streamTypeReplaceChance = 0.08D;
++        /** Extra direct chance that a natural spawn becomes a legendary/mythical during the bonus. */
++        public double streamLegendaryReplaceChance = 0.0008D;
++        /** Chance that a common/uncommon natural spawn is promoted to Rare/Epic. */
++        public double streamRareReplaceChance = 0.035D;
++        /** Chance for a naturally spawned Pokemon to receive at least one IV of 31. */
++        public double streamPerfectIvChance = 0.18D;
++        /** Conditional chance for a second perfect IV after the first stream IV bonus triggers. */
++        public double streamSecondPerfectIvChance = 0.04D;
+         /** Optional LuckPerms inheritance groups; the primary group is never replaced. */
+         public String linkedGroup = "twitch";
+         public String tier1Group = "sub_chaina";
+@@ -95,12 +111,24 @@ public final class ChainacobblemonConfig {
+             bridgePublicKey = bridgePublicKey.strip();
+             playerSyncIntervalSeconds = Math.clamp(playerSyncIntervalSeconds, 30, 3600);
+             channelPollSeconds = Math.clamp(channelPollSeconds, 15, 600);
++            streamBonusCount = Math.clamp(streamBonusCount, 1, 5);
++            streamJackpotChance = clamp01(streamJackpotChance, 0.05D, 0.25D);
++            streamTypeReplaceChance = clamp01(streamTypeReplaceChance, 0.08D, 0.50D);
++            streamLegendaryReplaceChance = clamp01(streamLegendaryReplaceChance, 0.0008D, 0.01D);
++            streamRareReplaceChance = clamp01(streamRareReplaceChance, 0.035D, 0.25D);
++            streamPerfectIvChance = clamp01(streamPerfectIvChance, 0.18D, 1.0D);
++            streamSecondPerfectIvChance = clamp01(streamSecondPerfectIvChance, 0.04D, 1.0D);
+             linkedGroup = normalizeGroup(linkedGroup, "twitch");
+             tier1Group = normalizeGroup(tier1Group, "sub_chaina");
+             tier2Group = normalizeGroup(tier2Group, "sub_chaina_plus");
+             tier3Group = normalizeGroup(tier3Group, "sub_chaina_plus_plus");
+         }
+ 
++        private static double clamp01(double value, double fallback, double maximum) {
++            if (!Double.isFinite(value)) return fallback;
++            return Math.max(0.0D, Math.min(maximum, value));
++        }
++
+         private static String normalizeGroup(String value, String fallback) {
+             if (value == null || value.isBlank()) return fallback;
+             String normalized = value.strip().toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_-]", "_");
+diff --git a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
+new file mode 100644
+index 0000000..a142c1a
+--- /dev/null
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
+@@ -0,0 +1,382 @@
++package com.andrewbristowx.chainacobblemon.twitch;
++
++import com.andrewbristowx.chainacobblemon.Chainacobblemon;
++import com.andrewbristowx.chainacobblemon.config.ConfigManager;
++import com.andrewbristowx.chainacobblemon.gacha.GachaTier;
++import com.andrewbristowx.chainacobblemon.gacha.catalog.PokemonCatalogEntry;
++import com.cobblemon.mod.common.api.events.CobblemonEvents;
++import com.cobblemon.mod.common.api.pokemon.PokemonProperties;
++import com.cobblemon.mod.common.api.pokemon.stats.Stat;
++import com.cobblemon.mod.common.api.pokemon.stats.Stats;
++import com.cobblemon.mod.common.pokemon.IVs;
++import com.cobblemon.mod.common.pokemon.Pokemon;
++import com.google.gson.Gson;
++import com.google.gson.GsonBuilder;
++
++import java.io.Reader;
++import java.io.Writer;
++import java.lang.reflect.Method;
++import java.lang.reflect.Proxy;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.time.Instant;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.concurrent.ThreadLocalRandom;
++import java.util.function.Consumer;
++
++/**
++ * Per-stream random Cobblemon bonuses driven only by Chaina's ONLINE/OFFLINE state.
++ * No Twitch credentials live here. A rolled live session is persisted so a server/world
++ * restart during the same stream keeps the same bonuses.
++ */
++final class StreamBonusService {
++    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
++    private static final List<String> BONUS_KINDS = List.of("SHINY", "TYPE", "IV", "LEGENDARY", "RARE");
++    private static final List<String> TYPES = List.of(
++            "normal", "fire", "water", "electric", "grass", "ice", "fighting", "poison", "ground",

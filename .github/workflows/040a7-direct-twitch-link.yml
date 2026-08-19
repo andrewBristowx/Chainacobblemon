@@ -1,0 +1,106 @@
+name: Build Chainacobblemon 0.4.0-alpha.7 Direct Twitch Link
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+          grep -q '0.4.0-alpha.5+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Restore validated alpha.6 onboarding
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+          grep -q '0.4.0-alpha.6+1.21.1' gradle.properties
+
+      - name: Apply alpha.7 direct-link patch
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
+
+      - name: Verify direct-link source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          grep -q 'mod_version=0.4.0-alpha.7+1.21.1' gradle.properties
+          grep -q 'VERSION = "0.4.0-alpha.7+1.21.1"' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+          grep -q 'RUN_COMMAND, "/twitch vincular_directo"' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'directLinkFlowActive' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'nextDirectLinkPollTick = ticks + 40L' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'snapshot.visible = !direct' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'vincular_directo' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+          grep -q 'ConfirmLinkScreen.open(client.currentScreen, snapshot.linkUrl, false)' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java
+          grep -q 'client.keyboard.setClipboard(snapshot.linkCode)' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.java
+
+      - name: Compile and package alpha.7
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.7+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/client/twitch/TwitchClient.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.7+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/alpha7-out
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.7+1.21.1.jar /tmp/alpha7-out/
+          cd /tmp/chainacobblemon
+          zip -qr /tmp/alpha7-out/Chainacobblemon-0.4.0-alpha.7-source.zip . -x 'build/*' '.gradle/*'
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5.jar" /tmp/alpha7-out/
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5-PACK.zip" /tmp/alpha7-out/
+          cat > /tmp/alpha7-out/README-ALPHA7.txt <<'EOF'
+          Chainacobblemon 0.4.0-alpha.7 + ChainaBridge 0.4.0-alpha.5
+
+          Normal player flow:
+          - Unlinked player joins and receives the private Twitch prompt.
+          - Click AQUÍ starts Device Code Flow without opening the Chaina Twitch admin GUI.
+          - The code is copied automatically and Minecraft shows only its standard link confirmation.
+          - Twitch opens in the browser after confirmation.
+          - The server polls every 2 seconds and applies account/tier/rank automatically.
+          - /twitch remains available as the manual/admin diagnostic GUI.
+
+          Keep all ChainaBridge alpha.5 encrypted-session files unchanged.
+          EOF
+          cd /tmp/alpha7-out
+          sha256sum Chainacobblemon-0.4.0-alpha.7+1.21.1.jar Chainacobblemon-0.4.0-alpha.7-source.zip ChainaBridge-0.4.0-alpha.5.jar ChainaBridge-0.4.0-alpha.5-PACK.zip > SHA256SUMS-0.4.0-alpha.7.txt
+
+      - name: Upload alpha.7 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.7-direct-Twitch-link
+          path: /tmp/alpha7-out/*
+          if-no-files-found: error
+          retention-days: 90

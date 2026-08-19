@@ -1,0 +1,268 @@
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,12 @@
++# 0.4.0-alpha.6
++
++- Twitch onboarding: al entrar, un jugador no vinculado recibe un aviso privado clickeable en chat.
++- El clic inicia `/twitch vincular` y abre la GUI con código/URL de autorización.
++- La GUI consulta automáticamente ChainaBridge cada 2 segundos mientras espera a Twitch.
++- Al completar OAuth, la cuenta, tier y rango se aplican automáticamente sin `/twitch sync`.
++- Jugadores ya vinculados se sincronizan silenciosamente al entrar, sin abrir GUI.
++- ChainaBridge 0.4.0-alpha.5 sigue siendo compatible y no cambia en esta release.
++
+ # Chainacobblemon 0.3.0-alpha.2
+ 
+ - Port funcional de paridad basado en la versión madura de referencia.
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -11,6 +11,6 @@
+ cobblemon_version_id=S1TrAn8c
+ geckolib_version=4.9.2
+ 
+-mod_version=0.4.0-alpha.5+1.21.1
++mod_version=0.4.0-alpha.6+1.21.1
+ maven_group=com.andrewbristowx.chainacobblemon
+ archives_base_name=Chainacobblemon
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+@@ -62,7 +62,7 @@
+ 
+ public final class Chainacobblemon implements ModInitializer {
+     public static final String MOD_ID = "chainacobblemon";
+-    public static final String VERSION = "0.4.0-alpha.5+1.21.1";
++    public static final String VERSION = "0.4.0-alpha.6+1.21.1";
+     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+ 
+     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
+@@ -49,7 +49,7 @@
+         String query = "?minecraft_uuid=" + encode(minecraftUuid) + "&broadcaster=" + encode(settings.broadcasterLogin);
+         return get("/v1/player/status" + query).thenApply(json -> new PlayerStatus(
+                 bool(json, "linked"), string(json, "twitch_user_id"), string(json, "twitch_login"),
+-                Math.clamp(integer(json, "tier"), 0, 3)));
++                Math.clamp(integer(json, "tier"), 0, 3), bool(json, "pending")));
+     }
+ 
+     CompletableFuture<ChannelStatus> channelStatus() {
+@@ -138,6 +138,6 @@
+     }
+ 
+     record LinkStart(String verificationUrl, String userCode, String requestId) { }
+-    record PlayerStatus(boolean linked, String twitchUserId, String twitchLogin, int tier) { }
++    record PlayerStatus(boolean linked, String twitchUserId, String twitchLogin, int tier, boolean pending) { }
+     record ChannelStatus(boolean online, String broadcaster) { }
+ }
+--- a/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
++++ b/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+@@ -15,12 +15,16 @@
+ import java.time.ZoneId;
+ import java.time.format.DateTimeFormatter;
+ import java.util.Locale;
++import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.ConcurrentHashMap;
+ 
+ public final class TwitchService {
+     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
+     private final ConfigManager configManager;
+     private final TwitchProfileStore store;
++    private final Set<UUID> joinPromptSent = ConcurrentHashMap.newKeySet();
++    private final Set<UUID> linkFlowActive = ConcurrentHashMap.newKeySet();
+     private volatile TwitchBridgeClient bridge;
+     private volatile MinecraftServer server;
+     private volatile boolean channelOnline;
+@@ -58,6 +62,8 @@
+     }
+ 
+     public void playerJoined(ServerPlayerEntity player) {
++        joinPromptSent.remove(player.getUuid());
++        linkFlowActive.remove(player.getUuid());
+         TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+         if (isBridgeMode() && profile.twitchUserId != null && profile.twitchUserId.startsWith("dev-")) {
+             profile.linked = false;
+@@ -68,10 +74,12 @@
+             store.save();
+         }
+         TwitchRankService.sync(player, profile, settings());
+-        if (isBridgeMode()) syncPlayer(player, false);
++        if (isBridgeMode()) syncPlayer(player, false, true);
+     }
+ 
+     public void playerLeft(UUID playerId) {
++        joinPromptSent.remove(playerId);
++        linkFlowActive.remove(playerId);
+         store.save();
+     }
+ 
+@@ -82,6 +90,7 @@
+             case "open", "status" -> open(player, "");
+             case "link" -> startLink(player);
+             case "sync" -> syncPlayer(player, true);
++            case "link_poll" -> pollLink(player);
+             case "unlink" -> unlink(player);
+             default -> open(player, "Accion Twitch desconocida: " + value);
+         }
+@@ -112,7 +121,6 @@
+             open(player, "ChainaBridge no esta configurado. No se guarda ningun token de Chaina en el mod.");
+             return;
+         }
+-        open(player, "Solicitando vinculacion segura a ChainaBridge...");
+         bridge.startLink(player.getUuidAsString(), player.getGameProfile().getName())
+                 .whenComplete((result, error) -> execute(() -> {
+                     if (error != null) {
+@@ -125,17 +133,22 @@
+                             : "Autoriza TU cuenta Twitch. El token queda solo en ChainaBridge y nunca se envia a Minecraft.");
+                     snapshot.linkUrl = result.verificationUrl();
+                     snapshot.linkCode = result.userCode();
++                    if (!setup) linkFlowActive.add(player.getUuid());
+                     TwitchNetworking.send(player, snapshot);
+                 }));
+     }
+ 
+     public void syncPlayer(ServerPlayerEntity player, boolean userRequested) {
++        syncPlayer(player, userRequested, false);
++    }
++
++    private void syncPlayer(ServerPlayerEntity player, boolean userRequested, boolean promptIfUnlinked) {
+         if (player == null) return;
+         if (isDevelopmentMode()) {
+             TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+             profile.touch();
+             store.save();
+-            open(player, userRequested ? "Estado Twitch de desarrollo sincronizado." : "");
++            if (userRequested) open(player, "Estado Twitch de desarrollo sincronizado.");
+             return;
+         }
+         if (bridge == null || !bridge.configured()) {
+@@ -147,21 +160,65 @@
+                 if (userRequested) open(player, "No se pudo sincronizar Twitch: " + safeError(error));
+                 return;
+             }
+-            TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
+-            boolean changed = profile.linked != status.linked() || profile.tier != status.tier()
+-                    || !profile.twitchLogin.equals(status.twitchLogin());
+-            profile.linked = status.linked();
+-            profile.twitchUserId = status.linked() ? status.twitchUserId() : "";
+-            profile.twitchLogin = status.linked() ? status.twitchLogin() : "";
+-            profile.tier = status.linked() ? status.tier() : 0;
+-            profile.touch();
+-            store.save();
+-            if (changed) TwitchRankService.sync(player, profile, settings());
+-            if (userRequested || changed) open(player, changed ? "Estado Twitch actualizado." : "Twitch ya estaba sincronizado.");
++            boolean changed = applyBridgeStatus(player, status);
++            if (userRequested) {
++                open(player, changed ? "Estado Twitch actualizado." : "Twitch ya estaba sincronizado.");
++            } else if (promptIfUnlinked && !status.linked() && !status.pending()) {
++                sendLinkPrompt(player);
++            }
++        }));
++    }
++
++    private void pollLink(ServerPlayerEntity player) {
++        if (player == null || bridge == null || !bridge.configured()) return;
++        bridge.playerStatus(player.getUuidAsString()).whenComplete((status, error) -> execute(() -> {
++            if (error != null || !status.linked()) return;
++            applyBridgeStatus(player, status);
++            boolean activeFlow = linkFlowActive.remove(player.getUuid());
++            TwitchSnapshot snapshot = snapshot(player, "¡Twitch vinculado correctamente! Tu rango ya fue actualizado.");
++            TwitchNetworking.send(player, snapshot);
++            if (activeFlow) sendLinkedSuccess(player);
+         }));
+     }
+ 
++    private boolean applyBridgeStatus(ServerPlayerEntity player, TwitchBridgeClient.PlayerStatus status) {
++        TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
++        boolean changed = profile.linked != status.linked() || profile.tier != status.tier()
++                || !profile.twitchLogin.equals(status.twitchLogin());
++        profile.linked = status.linked();
++        profile.twitchUserId = status.linked() ? status.twitchUserId() : "";
++        profile.twitchLogin = status.linked() ? status.twitchLogin() : "";
++        profile.tier = status.linked() ? status.tier() : 0;
++        profile.touch();
++        store.save();
++        if (changed) TwitchRankService.sync(player, profile, settings());
++        return changed;
++    }
++
++    private void sendLinkPrompt(ServerPlayerEntity player) {
++        if (player == null || !joinPromptSent.add(player.getUuid())) return;
++        MutableText prefix = Text.literal("✦ CHAINA × TWITCH ").formatted(Formatting.LIGHT_PURPLE, Formatting.BOLD);
++        MutableText body = Text.literal("Vincula tu cuenta de Twitch ").formatted(Formatting.WHITE);
++        MutableText here = Text.literal("AQUÍ").styled(style -> style
++                .withColor(Formatting.AQUA)
++                .withUnderline(true)
++                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/twitch vincular"))
++                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Clic para vincular tu cuenta de Twitch"))));
++        MutableText suffix = Text.literal(" para comprobar tu suscripción y beneficios.").formatted(Formatting.GRAY);
++        player.sendMessage(prefix.append(body).append(here).append(suffix), false);
++    }
++
++    private void sendLinkedSuccess(ServerPlayerEntity player) {
++        TwitchProfile profile = store.getOrCreate(player.getUuid(), player.getGameProfile().getName());
++        String tier = profile.tier <= 0 ? "sin suscripción" : "Tier " + profile.tier;
++        MutableText message = Text.literal("✓ Twitch vinculado: ").formatted(Formatting.GREEN, Formatting.BOLD)
++                .append(Text.literal("@" + profile.twitchLogin + " · " + tier + " · ").formatted(Formatting.WHITE))
++                .append(Text.literal(TwitchRankService.label(profile)).formatted(Formatting.LIGHT_PURPLE));
++        player.sendMessage(message, false);
++    }
++
+     public void unlink(ServerPlayerEntity player) {
++        linkFlowActive.remove(player.getUuid());
+         if (isDevelopmentMode()) {
+             applyUnlinked(player, "Cuenta Twitch de prueba desvinculada.");
+             return;
+--- a/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
++++ b/src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+@@ -10,6 +10,7 @@
+ public final class TwitchScreen extends Screen {
+     private final Screen parent;
+     private TwitchSnapshot snapshot;
++    private int linkPollTicks;
+ 
+     TwitchScreen(Screen parent, TwitchSnapshot snapshot) {
+         super(Text.literal("Chaina × Twitch"));
+@@ -19,10 +20,23 @@
+ 
+     void update(TwitchSnapshot next) {
+         this.snapshot = next;
++        if (next.linked) linkPollTicks = 0;
+         clearChildren();
+         init();
+     }
+ 
++    private boolean linking() {
++        return !snapshot.linked && snapshot.linkUrl != null && !snapshot.linkUrl.isBlank();
++    }
++
++    @Override
++    public void tick() {
++        super.tick();
++        if (!linking()) return;
++        linkPollTicks++;
++        if (linkPollTicks % 40 == 0) TwitchClient.action("link_poll");
++    }
++
+     @Override
+     protected void init() {
+         int panelW = Math.min(390, width - 30);
+@@ -33,8 +47,8 @@
+         int third = (panelW - gap * 2) / 3;
+         int half = (panelW - gap) / 2;
+ 
+-        String primary = snapshot.linked ? "Sincronizar" : "Vincular Twitch";
+-        String action = snapshot.linked ? "sync" : "link";
++        String primary = snapshot.linked ? "Sincronizar" : (linking() ? "Comprobar ahora" : "Vincular Twitch");
++        String action = snapshot.linked ? "sync" : (linking() ? "link_poll" : "link");
+         addDrawableChild(ButtonWidget.builder(Text.literal(primary), button -> TwitchClient.action(action))
+                 .dimensions(x, buttonY, third, 20).build());
+         addDrawableChild(ButtonWidget.builder(Text.literal("Desvincular"), button -> TwitchClient.action("unlink"))
+@@ -49,7 +63,7 @@
+ 
+         int nextY = buttonY + 54;
+         if (snapshot.linkUrl != null && !snapshot.linkUrl.isBlank()) {
+-            addDrawableChild(ButtonWidget.builder(Text.literal("§dAbrir vinculacion Twitch"), button -> openLink(snapshot.linkUrl))
++            addDrawableChild(ButtonWidget.builder(Text.literal("§dAUTORIZAR EN TWITCH"), button -> openLink(snapshot.linkUrl))
+                     .dimensions(x, nextY, half, 20).build());
+             addDrawableChild(ButtonWidget.builder(Text.literal("Copiar codigo"), button -> copyLinkCode())
+                     .dimensions(x + half + gap, nextY, half, 20).build());

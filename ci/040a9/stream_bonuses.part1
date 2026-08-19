@@ -1,0 +1,291 @@
++            "flying", "psychic", "bug", "rock", "ghost", "dragon", "dark", "steel", "fairy");
++    private static final Map<String, String> TYPE_NAMES = typeNames();
++
++    private final ConfigManager configManager;
++    private final Path stateFile;
++    private volatile StreamBonusState state = new StreamBonusState();
++
++    StreamBonusService(ConfigManager configManager) {
++        this.configManager = configManager;
++        this.stateFile = configManager.configDirectory().resolve("twitch").resolve("stream-bonus-state.json");
++    }
++
++    void initialize() {
++        load();
++        CobblemonEvents.SHINY_CHANCE_CALCULATION.subscribe(StreamBonusService::installShinyModifier);
++        // Keep this raw/reflective at the event edge because Cobblemon 1.7.3 publishes the
++        // event with Mojmap entity generics while this project compiles against Yarn mappings.
++        @SuppressWarnings({"rawtypes", "unchecked"})
++        Consumer rawConsumer = (Consumer<Object>) this::onPokemonSpawn;
++        CobblemonEvents.POKEMON_ENTITY_SPAWN.subscribe(rawConsumer);
++        Chainacobblemon.LOGGER.info("Chaina stream bonus service initialized; persisted active={}", state.active);
++    }
++
++    synchronized boolean onChannelState(boolean online) {
++        if (!settings().streamBonusesEnabled) {
++            if (state.active) {
++                state = new StreamBonusState();
++                save();
++                return true;
++            }
++            return false;
++        }
++        if (online) {
++            if (state.active && state.bonuses != null && !state.bonuses.isEmpty()) return false;
++            state = rollState();
++            save();
++            Chainacobblemon.LOGGER.info("Chaina stream bonuses rolled: {}", summary());
++            return true;
++        }
++        if (!state.active) return false;
++        state = new StreamBonusState();
++        save();
++        Chainacobblemon.LOGGER.info("Chaina stream bonuses cleared because the channel is offline");
++        return true;
++    }
++
++    synchronized boolean rerollForTesting(boolean online) {
++        if (!online || !settings().streamBonusesEnabled) return false;
++        state = rollState();
++        save();
++        Chainacobblemon.LOGGER.info("Chaina stream bonuses manually rerolled: {}", summary());
++        return true;
++    }
++
++    boolean active() {
++        return settings().streamBonusesEnabled && state.active;
++    }
++
++    boolean jackpot() {
++        return active() && state.jackpot;
++    }
++
++    String sessionId() {
++        return state.sessionId == null ? "" : state.sessionId;
++    }
++
++    List<String> hudLabels() {
++        if (!active()) return List.of();
++        List<String> result = new ArrayList<>();
++        for (Bonus bonus : safeBonuses()) result.add(label(bonus));
++        return result;
++    }
++
++    String summary() {
++        List<String> labels = hudLabels();
++        if (labels.isEmpty()) return "Sin bonus";
++        return String.join(" · ", labels);
++    }
++
++    void save() {
++        try {
++            Files.createDirectories(stateFile.getParent());
++            Path temp = stateFile.resolveSibling(stateFile.getFileName() + ".tmp");
++            try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
++                GSON.toJson(state, writer);
++            }
++            try {
++                Files.move(temp, stateFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
++                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
++            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
++                Files.move(temp, stateFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
++            }
++        } catch (Exception exception) {
++            Chainacobblemon.LOGGER.warn("Could not persist Chaina stream bonuses", exception);
++        }
++    }
++
++    private void load() {
++        try {
++            if (Files.notExists(stateFile)) return;
++            try (Reader reader = Files.newBufferedReader(stateFile, StandardCharsets.UTF_8)) {
++                StreamBonusState loaded = GSON.fromJson(reader, StreamBonusState.class);
++                if (loaded != null) {
++                    if (loaded.bonuses == null) loaded.bonuses = new ArrayList<>();
++                    state = loaded;
++                }
++            }
++        } catch (Exception exception) {
++            Chainacobblemon.LOGGER.warn("Could not load Chaina stream bonus state; starting inactive", exception);
++            state = new StreamBonusState();
++        }
++    }
++
++    private StreamBonusState rollState() {
++        ThreadLocalRandom random = ThreadLocalRandom.current();
++        StreamBonusState next = new StreamBonusState();
++        next.active = true;
++        next.sessionId = java.util.UUID.randomUUID().toString();
++        next.rolledAtEpochSeconds = Instant.now().getEpochSecond();
++        next.jackpot = random.nextDouble() < settings().streamJackpotChance;
++        int wanted = next.jackpot ? Math.min(4, BONUS_KINDS.size()) : Math.min(settings().streamBonusCount, BONUS_KINDS.size());
++        List<String> kinds = new ArrayList<>(BONUS_KINDS);
++        Collections.shuffle(kinds, random);
++        for (int i = 0; i < wanted; i++) next.bonuses.add(rollBonus(kinds.get(i), next.jackpot, random));
++        return next;
++    }
++
++    private Bonus rollBonus(String kind, boolean jackpot, ThreadLocalRandom random) {
++        Bonus bonus = new Bonus();
++        bonus.kind = kind;
++        switch (kind) {
++            case "SHINY" -> {
++                if (jackpot) bonus.amount = 4.0D;
++                else {
++                    double roll = random.nextDouble();
++                    bonus.amount = roll < 0.50D ? 2.0D : (roll < 0.85D ? 3.0D : 4.0D);
++                }
++            }
++            case "TYPE" -> {
++                bonus.type = TYPES.get(random.nextInt(TYPES.size()));
++                bonus.amount = Math.min(0.50D, settings().streamTypeReplaceChance * (jackpot ? 1.5D : 1.0D));
++            }
++            case "IV" -> {
++                bonus.amount = jackpot ? Math.max(settings().streamPerfectIvChance, 0.28D) : settings().streamPerfectIvChance;
++                bonus.secondary = jackpot ? Math.max(settings().streamSecondPerfectIvChance, 0.08D) : settings().streamSecondPerfectIvChance;
++            }
++            case "LEGENDARY" -> bonus.amount = jackpot
++                    ? Math.max(settings().streamLegendaryReplaceChance, 0.0015D)
++                    : settings().streamLegendaryReplaceChance;
++            case "RARE" -> bonus.amount = jackpot
++                    ? Math.max(settings().streamRareReplaceChance, 0.06D)
++                    : settings().streamRareReplaceChance;
++            default -> { }
++        }
++        return bonus;
++    }
++
++    private void onPokemonSpawn(Object event) {
++        if (!active()) return;
++        try {
++            Object entity = invoke(event, "getEntity");
++            Object rawPokemon = invoke(entity, "getPokemon");
++            if (!(rawPokemon instanceof Pokemon pokemon)) return;
++            if (bool(invoke(pokemon, "isPlayerOwned"), false) || bool(invoke(pokemon, "isNPCOwned"), false)) return;
++
++            ThreadLocalRandom random = ThreadLocalRandom.current();
++            Bonus legendary = bonus("LEGENDARY");
++            Bonus type = bonus("TYPE");
++            Bonus rare = bonus("RARE");
++
++            PokemonCatalogEntry current = catalogEntry(pokemon);
++            if (legendary != null && random.nextDouble() < legendary.amount) {
++                PokemonCatalogEntry target = randomEntry(entry -> entry.tier() == GachaTier.LEGENDARY || entry.tier() == GachaTier.MYTHICAL, random);
++                if (target != null) current = replaceSpecies(pokemon, target);
++            } else if (type != null && (current == null || !current.hasType(type.type)) && random.nextDouble() < type.amount) {
++                PokemonCatalogEntry target = randomEntry(entry -> entry.hasType(type.type)
++                        && entry.tier() != GachaTier.LEGENDARY && entry.tier() != GachaTier.MYTHICAL && entry.tier() != GachaTier.SPECIAL, random);
++                if (target != null) current = replaceSpecies(pokemon, target);
++            } else if (rare != null && !isRareOrHigher(current) && random.nextDouble() < rare.amount) {
++                PokemonCatalogEntry target = randomEntry(entry -> entry.tier() == GachaTier.RARE || entry.tier() == GachaTier.EPIC, random);
++                if (target != null) replaceSpecies(pokemon, target);
++            }
++
++            Bonus iv = bonus("IV");
++            if (iv != null) applyPerfectIvBonus(pokemon, iv, random);
++        } catch (Throwable exception) {
++            Chainacobblemon.LOGGER.debug("Could not apply a Chaina stream spawn bonus", exception);
++        }
++    }
++
++    private PokemonCatalogEntry replaceSpecies(Pokemon pokemon, PokemonCatalogEntry target) {
++        try {
++            int level = pokemon.getLevel();
++            PokemonProperties properties = PokemonProperties.Companion.parse(target.speciesId() + " level=" + level);
++            properties.apply(pokemon);
++            return target;
++        } catch (Throwable exception) {
++            Chainacobblemon.LOGGER.debug("Could not replace natural spawn with {} for stream bonus", target.speciesId(), exception);
++            return catalogEntry(pokemon);
++        }
++    }
++
++    private void applyPerfectIvBonus(Pokemon pokemon, Bonus iv, ThreadLocalRandom random) {
++        if (random.nextDouble() >= iv.amount) return;
++        int count = 1;
++        if (random.nextDouble() < iv.secondary) count++;
++        List<Stat> stats = new ArrayList<>(Stats.INSTANCE.getPERMANENT());
++        Collections.shuffle(stats, random);
++        for (int i = 0; i < Math.min(count, stats.size()); i++) pokemon.setIV(stats.get(i), IVs.MAX_VALUE);
++    }
++
++    private PokemonCatalogEntry catalogEntry(Pokemon pokemon) {
++        if (pokemon == null || pokemon.getSpecies() == null) return null;
++        return Chainacobblemon.pokemonCatalog().get(pokemon.getSpecies().showdownId());
++    }
++
++    private PokemonCatalogEntry randomEntry(java.util.function.Predicate<PokemonCatalogEntry> predicate, ThreadLocalRandom random) {
++        List<PokemonCatalogEntry> matches = Chainacobblemon.pokemonCatalog().values().stream().filter(predicate).toList();
++        return matches.isEmpty() ? null : matches.get(random.nextInt(matches.size()));
++    }
++
++    private static boolean isRareOrHigher(PokemonCatalogEntry entry) {
++        if (entry == null) return false;
++        return switch (entry.tier()) {
++            case RARE, EPIC, LEGENDARY, MYTHICAL, SPECIAL -> true;
++            default -> false;
++        };
++    }
++
++    private Bonus bonus(String kind) {
++        if (!active()) return null;
++        for (Bonus bonus : safeBonuses()) if (kind.equals(bonus.kind)) return bonus;
++        return null;
++    }
++
++    private List<Bonus> safeBonuses() {
++        List<Bonus> bonuses = state.bonuses;
++        return bonuses == null ? List.of() : List.copyOf(bonuses);
++    }
++
++    private String label(Bonus bonus) {
++        if (bonus == null || bonus.kind == null) return "BONUS";
++        return switch (bonus.kind) {
++            case "SHINY" -> "✦ SHINY x" + formatMultiplier(bonus.amount);
++            case "TYPE" -> TYPE_NAMES.getOrDefault(bonus.type, bonus.type == null ? "TIPO" : bonus.type.toUpperCase(Locale.ROOT))
++                    + " +" + percent(bonus.amount);
++            case "IV" -> "IV 31 +" + percent(bonus.amount);
++            case "LEGENDARY" -> "LEGENDARIOS +" + percent(bonus.amount);
++            case "RARE" -> "RAROS +" + percent(bonus.amount);
++            default -> bonus.kind;
++        };
++    }
++
++    private static String formatMultiplier(double value) {
++        if (Math.rint(value) == value) return Integer.toString((int) value);
++        return String.format(Locale.ROOT, "%.1f", value);
++    }
++
++    private static String percent(double value) {
++        double pct = value * 100.0D;
++        if (pct < 1.0D) return String.format(Locale.ROOT, "%.2f%%", pct);
++        if (Math.rint(pct) == pct) return ((int) pct) + "%";
++        return String.format(Locale.ROOT, "%.1f%%", pct);
++    }
++
++    private static void installShinyModifier(Object event) {
++        try {
++            Method addModificationFunction = null;
++            for (Method method : event.getClass().getMethods()) {
++                if (method.getName().equals("addModificationFunction") && method.getParameterCount() == 1) {
++                    addModificationFunction = method;
++                    break;
++                }
++            }
++            if (addModificationFunction == null) return;
++            Class<?> function3 = Class.forName("kotlin.jvm.functions.Function3");
++            Object modifier = Proxy.newProxyInstance(function3.getClassLoader(), new Class<?>[]{function3}, (proxy, method, args) -> {
++                if (method.getName().equals("invoke") && args != null && args.length == 3) {
++                    float chance = ((Number) args[0]).floatValue();
++                    StreamBonusService service = Chainacobblemon.twitchService().streamBonuses();
++                    Bonus shiny = service == null ? null : service.bonus("SHINY");
++                    if (shiny != null && shiny.amount > 1.0D) return chance / (float) shiny.amount;
++                    return chance;
++                }
++                if (method.getName().equals("toString")) return "ChainacobblemonStreamShinyModifier";
++                if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
++                if (method.getName().equals("equals")) return args != null && args.length == 1 && proxy == args[0];
++                return null;
++            });
++            addModificationFunction.invoke(event, modifier);
++        } catch (ReflectiveOperationException | LinkageError exception) {

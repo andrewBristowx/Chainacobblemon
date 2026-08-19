@@ -1,0 +1,99 @@
+name: Build Chainacobblemon 0.4.0-alpha.6 Twitch Onboarding
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q '0.4.0-alpha.5+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Apply alpha.6 Twitch onboarding patch
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+
+      - name: Verify onboarding source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          grep -q 'mod_version=0.4.0-alpha.6+1.21.1' gradle.properties
+          grep -q 'syncPlayer(player, false, true)' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'RUN_COMMAND, "/twitch vincular"' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'link_poll' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchService.java
+          grep -q 'bool(json, "pending")' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
+          grep -q 'AUTORIZAR EN TWITCH' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+          grep -q 'linkPollTicks % 40' src/client/java/com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.java
+
+      - name: Compile and package alpha.6
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.6+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/client/twitch/TwitchScreen.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.6+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/alpha6-out
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.6+1.21.1.jar /tmp/alpha6-out/
+          cd /tmp/chainacobblemon
+          zip -qr /tmp/alpha6-out/Chainacobblemon-0.4.0-alpha.6-source.zip . -x 'build/*' '.gradle/*'
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5.jar" /tmp/alpha6-out/
+          cp "$GITHUB_WORKSPACE/dist/040a5/ChainaBridge-0.4.0-alpha.5-PACK.zip" /tmp/alpha6-out/
+          cat > /tmp/alpha6-out/README-ALPHA6.txt <<'EOF'
+          Chainacobblemon 0.4.0-alpha.6 + ChainaBridge 0.4.0-alpha.5
+
+          Alpha.6 changes only the Minecraft mod onboarding flow.
+          Keep using ChainaBridge 0.4.0-alpha.5 and preserve its local files:
+          chainabridge.properties, chainabridge-keys.json, chainabridge-master.key, chainabridge-accounts.enc.
+
+          New flow:
+          - Unlinked player joins -> private clickable Twitch prompt.
+          - Click AQUÍ -> /twitch vincular -> GUI receives the Device Code.
+          - AUTORIZAR EN TWITCH opens official Twitch authorization.
+          - GUI polls ChainaBridge every 2 seconds and applies account/tier/rank automatically.
+          - Already-linked players sync silently on join.
+          EOF
+          cd /tmp/alpha6-out
+          sha256sum Chainacobblemon-0.4.0-alpha.6+1.21.1.jar Chainacobblemon-0.4.0-alpha.6-source.zip ChainaBridge-0.4.0-alpha.5.jar ChainaBridge-0.4.0-alpha.5-PACK.zip > SHA256SUMS-0.4.0-alpha.6.txt
+
+      - name: Upload alpha.6 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.6-Twitch-onboarding
+          path: /tmp/alpha6-out/*
+          if-no-files-found: error
+          retention-days: 90

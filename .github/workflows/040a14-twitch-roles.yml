@@ -1,0 +1,186 @@
+name: Build Chainacobblemon 0.4.0-alpha.14 Twitch VIP MOD Roles
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon && mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+
+      - name: Restore validated alpha.6-alpha.8
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
+          for p in "$GITHUB_WORKSPACE"/ci/040a8/*.patch; do patch -p1 < "$p"; done
+
+      - name: Restore validated alpha.9 stream bonuses
+        run: |
+          set -euxo pipefail
+          cat "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part0" \
+              "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part1" \
+              "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part2" > /tmp/040a9.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a9.patch
+          sed -i 's/Stats\.INSTANCE\.getPERMANENT()/Stats.Companion.getPERMANENT()/g' \
+            src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
+
+      - name: Restore validated alpha.10 Styled Player List
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a10_styled_player_list.patch"
+
+      - name: Restore validated alpha.11 TAB ranks and chat
+        run: |
+          set -euxo pipefail
+          cat "$GITHUB_WORKSPACE/ci/040a11/alpha11.part0" \
+              "$GITHUB_WORKSPACE/ci/040a11/alpha11.part1" \
+              "$GITHUB_WORKSPACE/ci/040a11/alpha11.part2" > /tmp/040a11.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a11.patch
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a11/alpha11-fix-import.patch"
+
+      - name: Restore validated alpha.12 LuckPerms Java 21 fix
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a12_luckperms_public_api.patch"
+
+      - name: Restore validated alpha.13 login crash fix
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a13_rankgroups_duplicate_fix.patch"
+
+      - name: Apply alpha.14 Twitch VIP MOD roles
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          cat "$GITHUB_WORKSPACE/ci/040a14/twitch_roles.part0" \
+              "$GITHUB_WORKSPACE/ci/040a14/twitch_roles.part1" \
+              "$GITHUB_WORKSPACE/ci/040a14/twitch_roles.part2" \
+              "$GITHUB_WORKSPACE/ci/040a14/twitch_roles.part3" > /tmp/040a14.patch
+          patch -p1 < /tmp/040a14.patch
+
+      - name: Verify alpha.14 source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          MAIN=src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+          CFG=src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
+          BR=src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
+          PROFILE=src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchProfile.java
+          LP=src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
+          SYNC=src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.java
+          DISPLAY=src/main/java/com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.java
+          grep -q 'mod_version=0.4.0-alpha.14+1.21.1' gradle.properties
+          grep -q '0.4.0-alpha.14+1.21.1' "$MAIN"
+          grep -q 'configVersion = 16' "$CFG"
+          grep -q 'vipTwitchGroup = "vip_chaina"' "$CFG"
+          grep -q 'moderatorTwitchGroup = "mod_chaina"' "$CFG"
+          grep -q 'rolesKnown' "$BR"
+          grep -q 'roles_observed_at' "$BR"
+          grep -q 'twitchVip' "$PROFILE"
+          grep -q 'twitchModerator' "$PROFILE"
+          grep -q 'chainacobblemon.twitch.vip' "$LP"
+          grep -q 'chainacobblemon.twitch.mod' "$LP"
+          grep -q 'settings.vipTwitchGroup' "$LP"
+          grep -q 'settings.moderatorTwitchGroup' "$LP"
+          grep -q 'net.luckperms.api.model.data.NodeMap' "$SYNC"
+          grep -q '◆VIP' "$DISPLAY"
+          grep -q '◆MOD' "$DISPLAY"
+          ! grep -q 'setPrimaryGroup' "$SYNC"
+
+      - name: Compile and package alpha.14
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Runtime smoke test RankGroups aliases
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          cat > /tmp/RankGroupsSmoke.java <<'EOF'
+          import com.andrewbristowx.chainacobblemon.progress.RankGroups;
+          import com.andrewbristowx.chainacobblemon.progress.JobLimitRules;
+          import java.util.List;
+          import java.util.Set;
+          public class RankGroupsSmoke {
+              public static void main(String[] args) {
+                  if (!RankGroups.ALL.equals(Set.of("default", "vip", "moderator", "owner"))) throw new AssertionError(RankGroups.ALL);
+                  if (JobLimitRules.forGroups(List.of("default"), 10) != 2) throw new AssertionError("default");
+                  if (JobLimitRules.forGroups(List.of("vip"), 10) != 4) throw new AssertionError("vip");
+                  if (JobLimitRules.forGroups(List.of("owner"), 10) != 10) throw new AssertionError("owner");
+                  System.out.println("RankGroups runtime smoke OK");
+              }
+          }
+          EOF
+          javac -cp build/classes/java/main -d /tmp /tmp/RankGroupsSmoke.java
+          java -cp build/classes/java/main:/tmp RankGroupsSmoke
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.14+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchRankService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/RankDisplayService.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.14+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/alpha14-out
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.14+1.21.1.jar "$OUT/"
+          cd /tmp/chainacobblemon
+          zip -qr "$OUT/Chainacobblemon-0.4.0-alpha.14-source.zip" . -x 'build/*' '.gradle/*'
+          cat > "$OUT/README-ALPHA14.txt" <<'EOF'
+          Chainacobblemon 0.4.0-alpha.14 - Twitch VIP/MOD secondary roles
+
+          Designed for ChainaBridge 0.4.0-alpha.8.
+          Creates optional LuckPerms groups vip_chaina and mod_chaina.
+          These are secondary role badges only and never grant Minecraft staff/admin permissions.
+          Primary LuckPerms groups are never changed.
+
+          TAB and StyledChat show compact badges:
+          ◆VIP or ◆MOD, alongside the existing primary rank and SUB badge.
+
+          Existing alpha.13 login crash fix, alpha.12 LuckPerms Java 21 fix,
+          stream bonuses, TAB v2, StyledChat and Twitch linking remain intact.
+          EOF
+          cd "$OUT"
+          sha256sum Chainacobblemon-0.4.0-alpha.14+1.21.1.jar Chainacobblemon-0.4.0-alpha.14-source.zip > SHA256SUMS-0.4.0-alpha.14.txt
+
+      - name: Upload alpha.14 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.14-Twitch-Roles
+          path: /tmp/alpha14-out/*
+          if-no-files-found: error
+          retention-days: 90

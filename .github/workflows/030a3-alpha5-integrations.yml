@@ -1,0 +1,151 @@
+name: Build Chainacobblemon 0.3.0-alpha.5 integrated systems
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.5
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore exact Chainacobblemon alpha.4 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9269274755/zip' \
+            -o /tmp/chainacobblemon-alpha4-artifact.zip
+          mkdir -p /tmp/alpha4-artifact /tmp/chainacobblemon
+          unzip -q /tmp/chainacobblemon-alpha4-artifact.zip -d /tmp/alpha4-artifact
+          srczip="$(find /tmp/alpha4-artifact -name 'Chainacobblemon-0.3.0-alpha.4-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          test -f /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+
+      - name: Apply alpha.5 daily reward and gasha redesigns
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ci/alpha5/DailyRewardScreen.java /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          cp ci/alpha5/GachaScreen.java /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+          grep -q 'POSIBLES PREMIOS' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.java
+          grep -q 'SALDO DE TICKETS' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.java
+
+      - name: Restore integrated ChainaProtecciones and Chaina Alerts payload
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/alpha5/payload/payload.part* | base64 -d > /tmp/alpha5-integrated.tar.xz
+          mkdir -p /tmp/integrated
+          tar -xJf /tmp/alpha5-integrated.tar.xz -C /tmp/integrated
+          test -f /tmp/integrated/com/emiprotecciones/EmiProtecciones.class
+          test -f /tmp/integrated/com/andrewbristowx/cobbleeventalerts/CobbleEventAlerts.class
+          test -f /tmp/integrated/assets/chainacobblemon/models/item/protection_core_chaina.json
+          rsync -a \
+            --exclude='assets/chainacobblemon/lang/en_us.json' \
+            --exclude='assets/chainacobblemon/lang/es_es.json' \
+            /tmp/integrated/ /tmp/chainacobblemon/src/main/resources/
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src = Path('/tmp/chainacobblemon')
+          integrated = Path('/tmp/integrated')
+          resources = src / 'src/main/resources'
+          for locale in ('en_us', 'es_es'):
+              dst = resources / f'assets/chainacobblemon/lang/{locale}.json'
+              extra = integrated / f'assets/chainacobblemon/lang/{locale}.json'
+              base_data = json.loads(dst.read_text(encoding='utf-8')) if dst.exists() else {}
+              base_data.update(json.loads(extra.read_text(encoding='utf-8')))
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              dst.write_text(json.dumps(base_data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          mod_path = resources / 'fabric.mod.json'
+          mod = json.loads(mod_path.read_text(encoding='utf-8'))
+          main = mod.setdefault('entrypoints', {}).setdefault('main', [])
+          client = mod['entrypoints'].setdefault('client', [])
+          for entry in (
+              'com.emiprotecciones.EmiProtecciones',
+              'com.emiprotecciones.ManagementCommandCompat',
+              'com.andrewbristowx.cobbleeventalerts.CobbleEventAlerts',
+          ):
+              if entry not in main:
+                  main.append(entry)
+          if 'com.emiprotecciones.EmiProteccionesClient' not in client:
+              client.append('com.emiprotecciones.EmiProteccionesClient')
+          suggests = mod.setdefault('suggests', {})
+          suggests['flan'] = '*'
+          suggests['luckperms'] = '*'
+          mod_path.write_text(json.dumps(mod, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          props = src / 'gradle.properties'
+          text = props.read_text(encoding='utf-8').replace('mod_version=0.3.0-alpha.4+1.21.1', 'mod_version=0.3.0-alpha.5+1.21.1')
+          props.write_text(text, encoding='utf-8')
+          PY
+          grep -q 'com.emiprotecciones.EmiProtecciones' /tmp/chainacobblemon/src/main/resources/fabric.mod.json
+          grep -q 'com.andrewbristowx.cobbleeventalerts.CobbleEventAlerts' /tmp/chainacobblemon/src/main/resources/fabric.mod.json
+          grep -q 'Núcleo de Protección Chaina' /tmp/chainacobblemon/src/main/resources/assets/chainacobblemon/lang/es_es.json
+          grep -q 'mod_version=0.3.0-alpha.5+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Compile Chainacobblemon alpha.5
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon --stacktrace
+
+      - name: Verify one-jar integrations and redesigned UI
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=/tmp/chainacobblemon
+          jar="$(find "$src/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$jar"
+          unzip -p "$jar" fabric.mod.json | grep -q '"id": "chainacobblemon"'
+          unzip -p "$jar" fabric.mod.json | grep -q '0.3.0-alpha.5+1.21.1'
+          unzip -p "$jar" fabric.mod.json | grep -q 'com.emiprotecciones.EmiProtecciones'
+          unzip -p "$jar" fabric.mod.json | grep -q 'com.andrewbristowx.cobbleeventalerts.CobbleEventAlerts'
+          unzip -l "$jar" | grep -q 'com/emiprotecciones/EmiProtecciones.class'
+          unzip -l "$jar" | grep -q 'com/emiprotecciones/ProtectionScreen.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/cobbleeventalerts/CobbleEventAlerts.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/cobbleeventalerts/command/AlertsCommand.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/cobbleeventalerts/config/AlertsConfig.class'
+          unzip -l "$jar" | grep -q 'assets/chainacobblemon/models/item/protection_core_chaina.json'
+          unzip -l "$jar" | grep -q 'data/chainacobblemon/loot_table/blocks/protection_core_chaina.json'
+          unzip -p "$jar" assets/chainacobblemon/lang/es_es.json | grep -q 'Núcleo de Protección Chaina'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/rewards/DailyRewardScreen.class'
+          unzip -l "$jar" | grep -q 'com/andrewbristowx/chainacobblemon/client/gacha/GachaScreen.class'
+          mkdir -p /tmp/release
+          cp "$jar" '/tmp/release/Chainacobblemon-0.3.0-alpha.5+1.21.1.jar'
+          (cd "$src" && zip -qr '/tmp/release/Chainacobblemon-0.3.0-alpha.5-source.zip' . -x '.gradle/*' 'build/*')
+          sha256sum \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.5+1.21.1.jar \
+            /tmp/release/Chainacobblemon-0.3.0-alpha.5-source.zip \
+            > /tmp/release/SHA256SUMS-0.3.0-alpha.5.txt
+          cat /tmp/release/SHA256SUMS-0.3.0-alpha.5.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.5-integrated
+          path: /tmp/release/*

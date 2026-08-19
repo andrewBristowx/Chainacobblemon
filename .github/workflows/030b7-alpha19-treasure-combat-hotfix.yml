@@ -1,0 +1,106 @@
+name: Build Chainacobblemon 0.3.0-alpha.19 Treasure Combat Hotfix
+
+on:
+  push:
+    branches:
+      - release/0.3.0-alpha.19
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore exact alpha.18 source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            'https://api.github.com/repos/andrewBristowx/Chainacobblemon/actions/artifacts/9295503230/zip' \
+            -o /tmp/alpha18-artifact.zip
+          rm -rf /tmp/alpha18-artifact /tmp/chainacobblemon
+          mkdir -p /tmp/alpha18-artifact /tmp/chainacobblemon
+          unzip -q /tmp/alpha18-artifact.zip -d /tmp/alpha18-artifact
+          srczip="$(find /tmp/alpha18-artifact -name 'Chainacobblemon-0.3.0-alpha.18-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+
+      - name: Apply exact alpha.19 overlay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '40dee52f1f90d6bd1714351573c476e8ef0f2593a33aa58f4d9cc2e041ba32aa  ci/alpha19/part00' | sha256sum -c -
+          echo '34dd50b2d56a982fe22698ae0a82191dc023dcd6b370e1d3d9583fa8a96a365d  ci/alpha19/part01' | sha256sum -c -
+          echo '6cac994574b8936356c693da56af472b9d59c496b5f34dfff4b6c2fc29f6648c  ci/alpha19/part02' | sha256sum -c -
+          echo '3a22910b16b2442799b7d626da2cfdbb8cd02f99cfb6a9b811e8a112428b82c4  ci/alpha19/part030' | sha256sum -c -
+          echo '769505d9ab942c060288cbf4a2714406b8ef28b90e510ff8675b71fac9f8141d  ci/alpha19/part031' | sha256sum -c -
+          cat ci/alpha19/part00 ci/alpha19/part01 ci/alpha19/part02 ci/alpha19/part030 ci/alpha19/part031 > /tmp/alpha19-overlay.b64
+          echo 'dcb9565b7ea12f60f54eb3e68a84a725a54d64a1b46a23fb156b025b02d269ad  /tmp/alpha19-overlay.b64' | sha256sum -c -
+          base64 -d /tmp/alpha19-overlay.b64 > /tmp/alpha19-overlay.tar.gz
+          echo '7e916d89fe9429bae896db36692ca5cacf9fb0653aad99875d30fbe6b5d9602b  /tmp/alpha19-overlay.tar.gz' | sha256sum -c -
+          gzip -t /tmp/alpha19-overlay.tar.gz
+          tar -xzf /tmp/alpha19-overlay.tar.gz -C /tmp/chainacobblemon
+          grep -q 'mod_version=0.3.0-alpha.19+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Compile Chainacobblemon alpha.19
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build -x test --no-daemon
+
+      - name: Verify alpha.19 Treasure fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.19*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -n "$jarfile"
+          rm -rf /tmp/jarcheck && mkdir -p /tmp/jarcheck
+          cd /tmp/jarcheck
+          jar xf "/tmp/chainacobblemon/$jarfile"
+          grep -q '0.3.0-alpha.19' fabric.mod.json
+          test -f com/andrewbristowx/chainacobblemon/client/npc/NpcDialogueScreen.class
+          test -f com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.class
+          test -f com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.class
+          grep -q 'setCustomNameVisible(false)' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+          grep -q 'competitiveTreasureSpec' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.java
+          grep -q 'moves=' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.java
+          grep -q 'isOwnedByNpc' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+          grep -q 'ExperienceOrbEntity' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+          grep -q 'ItemEntity' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/events/treasure/TreasureHuntService.java
+          grep -q 'client.setScreen(null)' /tmp/chainacobblemon/src/client/java/com/andrewbristowx/chainacobblemon/client/npc/NpcDialogueScreen.java
+          grep -q 'treasure_event:' /tmp/chainacobblemon/src/main/java/com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.java
+
+      - name: Package source and checksums
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          rm -rf /tmp/out && mkdir -p /tmp/out
+          jarfile="$(find build/libs -maxdepth 1 -type f -name '*alpha.19*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          cp "$jarfile" /tmp/out/Chainacobblemon-0.3.0-alpha.19+1.21.1.jar
+          zip -qr /tmp/out/Chainacobblemon-0.3.0-alpha.19-source.zip . -x './.gradle/*' './build/*'
+          cd /tmp/out
+          sha256sum Chainacobblemon-0.3.0-alpha.19+1.21.1.jar Chainacobblemon-0.3.0-alpha.19-source.zip > SHA256SUMS-0.3.0-alpha.19.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.3.0-alpha.19
+          path: /tmp/out/*

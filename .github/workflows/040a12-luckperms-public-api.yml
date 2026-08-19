@@ -1,0 +1,141 @@
+name: Build Chainacobblemon 0.4.0-alpha.12 LuckPerms Public API Fix
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore authoritative alpha.5 source
+        run: |
+          set -euxo pipefail
+          test -f dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip
+          rm -rf /tmp/chainacobblemon
+          mkdir -p /tmp/chainacobblemon
+          unzip -q dist/040a5/Chainacobblemon-0.4.0-alpha.5-source.zip -d /tmp/chainacobblemon
+
+      - name: Restore validated alpha.6-alpha.8
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a6_twitch_onboarding.patch"
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a7_direct_twitch_link.patch"
+          for p in "$GITHUB_WORKSPACE"/ci/040a8/*.patch; do patch -p1 < "$p"; done
+
+      - name: Restore validated alpha.9 stream bonuses
+        run: |
+          set -euxo pipefail
+          cat \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part0" \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part1" \
+            "$GITHUB_WORKSPACE/ci/040a9/stream_bonuses.part2" \
+            > /tmp/040a9.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a9.patch
+          sed -i 's/Stats\.INSTANCE\.getPERMANENT()/Stats.Companion.getPERMANENT()/g' \
+            src/main/java/com/andrewbristowx/chainacobblemon/twitch/StreamBonusService.java
+
+      - name: Restore validated alpha.10 Styled Player List
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a10_styled_player_list.patch"
+
+      - name: Restore validated alpha.11 TAB ranks and chat
+        run: |
+          set -euxo pipefail
+          cat \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part0" \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part1" \
+            "$GITHUB_WORKSPACE/ci/040a11/alpha11.part2" \
+            > /tmp/040a11.patch
+          cd /tmp/chainacobblemon
+          patch -p1 < /tmp/040a11.patch
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a11/alpha11-fix-import.patch"
+
+      - name: Apply alpha.12 LuckPerms fix
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          patch -p1 < "$GITHUB_WORKSPACE/ci/040a12_luckperms_public_api.patch"
+
+      - name: Verify alpha.12 source contract
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          LP=src/main/java/com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.java
+          MAIN=src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+          grep -q 'mod_version=0.4.0-alpha.12+1.21.1' gradle.properties
+          grep -q '0.4.0-alpha.12+1.21.1' "$MAIN"
+          grep -q 'net.luckperms.api.model.data.NodeMap' "$LP"
+          grep -q 'net.luckperms.api.node.NodeBuilder' "$LP"
+          grep -q 'net.luckperms.api.model.PermissionHolder' "$LP"
+          grep -q 'net.luckperms.api.model.group.GroupManager' "$LP"
+          ! grep -q 'invokeCompatible' "$LP"
+          ! grep -q 'data.getClass().getMethod("add"' "$LP"
+          ! grep -q 'builder.getClass().getMethod("build"' "$LP"
+
+      - name: Compile and package alpha.12
+        run: |
+          set -euxo pipefail
+          cd /tmp/chainacobblemon
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify final JAR
+        run: |
+          set -euxo pipefail
+          JAR=/tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.12+1.21.1.jar
+          test -s "$JAR"
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/LuckPermsBootstrap.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/StyledPlayerListIntegration.class'
+          jar tf "$JAR" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/StyledChatIntegration.class'
+          unzip -p "$JAR" fabric.mod.json | grep -q '0.4.0-alpha.12+1.21.1'
+
+      - name: Prepare authoritative artifact
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/alpha12-out
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          cp /tmp/chainacobblemon/build/libs/Chainacobblemon-0.4.0-alpha.12+1.21.1.jar "$OUT/"
+          cd /tmp/chainacobblemon
+          zip -qr "$OUT/Chainacobblemon-0.4.0-alpha.12-source.zip" . -x 'build/*' '.gradle/*'
+          cat > "$OUT/README-ALPHA12.txt" <<'EOF'
+          Chainacobblemon 0.4.0-alpha.12 - LuckPerms Java 21 runtime fix
+
+          Focused hotfix for the real HolyHosting stacktrace:
+          IllegalAccessException accessing LuckPerms ApiPermissionHolder$NodeMapImpl.
+
+          The optional LuckPerms integration now invokes public API interfaces
+          (LuckPerms, GroupManager, PermissionHolder, NodeMap, NodeBuilder,
+          UserManager and Group) instead of reflecting on package-private
+          implementation classes.
+
+          Keep ChainaBridge 0.4.0-alpha.7.
+          TAB v2, Styled Chat, Twitch linking and stream bonuses are unchanged.
+          EOF
+          cd "$OUT"
+          sha256sum Chainacobblemon-0.4.0-alpha.12+1.21.1.jar Chainacobblemon-0.4.0-alpha.12-source.zip > SHA256SUMS-0.4.0-alpha.12.txt
+
+      - name: Upload alpha.12 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.12-LuckPerms-fix
+          path: /tmp/alpha12-out/*
+          if-no-files-found: error
+          retention-days: 90
