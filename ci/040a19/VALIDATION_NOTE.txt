@@ -1,0 +1,1 @@
+Alpha.19 validation target: dungeon trainers must use the player's real party level instead of the regional RCT cap, must not down-sync the player, and unsafe dungeon NPC positions must be relocated to nearby safe full-block floors.
