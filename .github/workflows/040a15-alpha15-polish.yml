@@ -60,6 +60,7 @@ jobs:
               ci/040a15/alpha15.patch.b64.part4 | base64 -d > /tmp/alpha15.patch
           cd /tmp/chainacobblemon
           patch -p1 --forward --batch < /tmp/alpha15.patch
+          patch -p1 --forward --batch < "$GITHUB_WORKSPACE/ci/040a15/alpha15-fix1.patch"
           grep -q 'mod_version=0.4.0-alpha.15+1.21.1' gradle.properties
           grep -q '0.4.0-alpha.15+1.21.1' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
           grep -q 'configVersion = 17' src/main/java/com/andrewbristowx/chainacobblemon/config/ChainacobblemonConfig.java
