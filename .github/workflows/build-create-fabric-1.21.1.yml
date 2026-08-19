@@ -25,24 +25,22 @@ jobs:
 
       - name: Clone upstream Create Fabric 1.21.1
         run: |
-          git clone https://github.com/Fabricators-of-Create/Create.git upstream-create
+          git clone --depth 1 --branch 'mc1.21.1/fabric/dev' https://github.com/Fabricators-of-Create/Create.git upstream-create
           cd upstream-create
-          git checkout 7f1f67b6ecbbde512e8d35404f3621a6875ce838
+          test "$(git rev-parse HEAD)" = "7f1f67b6ecbbde512e8d35404f3621a6875ce838"
           git rev-parse HEAD | tee ../UPSTREAM_COMMIT.txt
           git log -1 --pretty='%H%n%ci%n%s' > ../UPSTREAM_INFO.txt
 
-      - name: Apply build-only dependency workaround
+      - name: Update moved FTB Maven endpoint
         working-directory: upstream-create
         run: |
           set -euxo pipefail
-          cp build.gradle.kts ../build.gradle.kts.before
-          sed -i '/modCompileOnly("dev.ftb.mods:ftb-library-fabric:2001.2.8")/d' build.gradle.kts
-          sed -i '/modCompileOnly("dev.ftb.mods:ftb-chunks-fabric:2001.3.1")/d' build.gradle.kts
-          sed -i '/modCompileOnly("dev.ftb.mods:ftb-quests-fabric:2001.4.2")/d' build.gradle.kts
-          grep -q 'ftb-library-fabric:2001.2.8' ../build.gradle.kts.before
-          ! grep -q 'ftb-library-fabric:2001.2.8' build.gradle.kts
-          ! grep -q 'ftb-chunks-fabric:2001.3.1' build.gradle.kts
-          ! grep -q 'ftb-quests-fabric:2001.4.2' build.gradle.kts
+          grep -q 'https://maven.saps.dev/releases' build.gradle.kts
+          sed -i 's#https://maven.saps.dev/releases#https://maven.ftb.dev/releases#g' build.gradle.kts
+          grep -q 'https://maven.ftb.dev/releases' build.gradle.kts
+          grep -q 'dev.ftb.mods:ftb-chunks-fabric:2001.3.1' build.gradle.kts
+          grep -q 'dev.ftb.mods:ftb-teams-fabric:2001.3.0' build.gradle.kts
+          grep -q 'dev.ftb.mods:ftb-library-fabric:2001.2.4' build.gradle.kts
 
       - name: Build upstream source
         working-directory: upstream-create
@@ -71,11 +69,9 @@ jobs:
             echo
             cat UPSTREAM_INFO.txt
             echo
-            echo 'Build-only workaround: omitted three unresolved optional FTB modCompileOnly dependencies from the Gradle classpath:'
-            echo '- dev.ftb.mods:ftb-library-fabric:2001.2.8'
-            echo '- dev.ftb.mods:ftb-chunks-fabric:2001.3.1'
-            echo '- dev.ftb.mods:ftb-quests-fabric:2001.4.2'
-            echo 'No Create Java/resource source files were modified by this workflow.'
+            echo 'Build-only compatibility fix: the obsolete FTB Maven repository URL was changed from maven.saps.dev/releases to the current maven.ftb.dev/releases endpoint.'
+            echo 'All declared FTB compile-only dependencies were retained.'
+            echo 'No Create Java/resource source files were modified.'
             echo 'This is a development build, not an official Create release.'
           } > BUILD-INFO.txt
 
