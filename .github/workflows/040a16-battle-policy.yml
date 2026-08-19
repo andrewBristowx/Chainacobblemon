@@ -7,6 +7,12 @@ on:
     paths:
       - 'ci/040a16/**'
       - '.github/workflows/040a16-battle-policy.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ci/040a16/**'
+      - '.github/workflows/040a16-battle-policy.yml'
   workflow_dispatch:
 
 permissions:
