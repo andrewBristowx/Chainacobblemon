@@ -15,9 +15,18 @@ test -n "$srczip"
 unzip -q "$srczip" -d /tmp/chainacobblemon
 
 grep -q 'mod_version=0.4.0-alpha.16+1.21.1' /tmp/chainacobblemon/gradle.properties
-base64 -d ci/040a17/chaina_alpha17.patch.gz.b64 | gzip -dc > /tmp/alpha17.patch
+
+# Use the last known-good alpha.17 feature patch from before the compile-compatibility edit.
+# Keeping it commit-pinned makes CI reproducible even if the branch-side staging blob changes.
+curl -fL --retry 3 --retry-delay 2 \
+  "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/5110328c10cba718a428c0f505da9b9608066cca/ci/040a17/chaina_alpha17.patch.gz.b64" \
+  -o /tmp/alpha17-feature.patch.gz.b64
+base64 -d /tmp/alpha17-feature.patch.gz.b64 | gzip -dc > /tmp/alpha17.patch
 cd /tmp/chainacobblemon
 patch -p1 --forward --batch < /tmp/alpha17.patch
+
+# Yarn/Cobblemon compatibility fixes found by the first Java 21 CI compile.
+patch -p1 --forward --batch < "$GITHUB_WORKSPACE/ci/040a17/alpha17_compile_hotfix.patch"
 
 grep -q 'mod_version=0.4.0-alpha.17+1.21.1' gradle.properties
 grep -q '0.4.0-alpha.17+1.21.1' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
@@ -27,6 +36,8 @@ test -f src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRew
 grep -q 'support-rewards.json' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.java
 grep -q 'waterdrop' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
 grep -q 'giftsubs' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+grep -q 'world.getHeight() - 1' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.java
+grep -q 'Class.forName("com.cobblemon.mod.common.battles.BattleRegistry")' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.java
 
 sed -i 's/\r$//' gradlew
 chmod +x gradlew
