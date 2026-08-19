@@ -11,9 +11,28 @@ unzip -q /tmp/a20/source.zip -d /tmp/chainacobblemon
 
 grep -q 'mod_version=0.4.0-alpha.20+1.21.1' /tmp/chainacobblemon/gradle.properties
 
-base64 -d "$GITHUB_WORKSPACE/ci/040a21/chaina_alpha21.patch.gz.b64" | gzip -dc > /tmp/alpha21.patch
+# Use the last known-good alpha21 patch blob. A later edit to the repository copy was intentionally
+# bypassed after GitHub Actions exposed a transport/base64 truncation; this immutable commit keeps
+# the source patch reproducible and we apply the tiny 1.21.1 command API correction immediately below.
+curl -fL --retry 3 --retry-delay 2 \
+  "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/6b642004672d36adb202caf12573529e9e2fda63/ci/040a21/chaina_alpha21.patch.gz.b64" \
+  -o /tmp/alpha21.patch.gz.b64
+base64 -d /tmp/alpha21.patch.gz.b64 | gzip -dc > /tmp/alpha21.patch
 cd /tmp/chainacobblemon
 patch -p1 --forward --batch < /tmp/alpha21.patch
+
+# Minecraft 1.21.1's executeWithPrefix returns void. Verify the synchronously-created native
+# TrainerMob instead of relying on a command return integer.
+python3 - <<'PY'
+from pathlib import Path
+p = Path('src/main/java/com/andrewbristowx/chainacobblemon/dungeon/RctDungeonSpawnerService.java')
+s = p.read_text()
+old = '''            try {\n                int result = player.getServer().getCommandManager().executeWithPrefix(\n                        player.getCommandSource().withLevel(4).withSilent(), command);\n                if (result > 0) return true;\n            } catch (RuntimeException exception) {\n'''
+new = '''            try {\n                player.getServer().getCommandManager().executeWithPrefix(\n                        player.getCommandSource().withLevel(4).withSilent(), command);\n                // In 1.21.1 executeWithPrefix returns void. The command is synchronous, so verify that\n                // a matching native RCT trainer now occupies the authored spawner before reporting success.\n                if (findOccupant(world, pos, new SpawnerData(trainerIds, "")) != null) return true;\n            } catch (RuntimeException exception) {\n'''
+if old not in s:
+    raise SystemExit('alpha21 executeWithPrefix compatibility target not found')
+p.write_text(s.replace(old, new))
+PY
 
 grep -q 'mod_version=0.4.0-alpha.21+1.21.1' gradle.properties
 grep -q '0.4.0-alpha.21+1.21.1' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
@@ -21,6 +40,7 @@ test -f src/main/java/com/andrewbristowx/chainacobblemon/dungeon/RctDungeonSpawn
 grep -q 'TRAINER_SPAWNER_ID' src/main/java/com/andrewbristowx/chainacobblemon/dungeon/RctDungeonSpawnerService.java
 grep -q 'nativeTrainerId' src/main/java/com/andrewbristowx/chainacobblemon/npc/RctWorldTrainerService.java
 grep -q 'RctDungeonSpawnerService.ensureNearby' src/main/java/com/andrewbristowx/chainacobblemon/dungeon/DungeonTrainerService.java
+grep -q 'findOccupant(world, pos, new SpawnerData' src/main/java/com/andrewbristowx/chainacobblemon/dungeon/RctDungeonSpawnerService.java
 
 sed -i 's/\r$//' gradlew
 chmod +x gradlew
