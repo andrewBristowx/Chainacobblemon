@@ -1,0 +1,118 @@
+name: Build Chainacobblemon 0.4.0-alpha.16 Battle Policy
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.16
+    paths:
+      - 'ci/040a16/**'
+      - '.github/workflows/040a16-battle-policy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore verified alpha.15 source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/a15 /tmp/chainacobblemon
+          mkdir -p /tmp/a15 /tmp/chainacobblemon
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9349529218/zip" \
+            -o /tmp/a15/artifact.zip
+          unzip -q /tmp/a15/artifact.zip -d /tmp/a15
+          srczip="$(find /tmp/a15 -maxdepth 1 -type f -name '*source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/gradlew
+
+      - name: Apply alpha.16 battle AI and gimmick policy
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 -d ci/040a16/battle_policy.patch.gz.b64 | gzip -dc > /tmp/alpha16.patch
+          cd /tmp/chainacobblemon
+          patch -p1 --forward --batch < /tmp/alpha16.patch
+          grep -q 'mod_version=0.4.0-alpha.16+1.21.1' gradle.properties
+          grep -q 'createControlledNativeTrainer' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
+          grep -q 'applyRegionalGimmickPolicy' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
+          grep -q 'mega_showdown:pidgeotite' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
+          grep -q 'mega_showdown:garchompite' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
+          grep -q 'towerBattleSpec' src/main/java/com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.java
+          grep -q 'floor == 9 ? 0.50D : 0.25D' src/main/java/com/andrewbristowx/chainacobblemon/tower/ChallengeTowerService.java
+
+      - name: Compile alpha.16 on Java 21
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify alpha.16 JAR contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jarfile="$(find /tmp/chainacobblemon/build/libs -maxdepth 1 -type f -name 'Chainacobblemon-0.4.0-alpha.16+1.21.1*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -s "$jarfile"
+          unzip -p "$jarfile" fabric.mod.json | grep -q '0.4.0-alpha.16+1.21.1'
+          javap -classpath "$jarfile" -p com.andrewbristowx.chainacobblemon.npc.NpcBattleService > /tmp/npcbattle.txt
+          javap -classpath "$jarfile" -p com.andrewbristowx.chainacobblemon.tower.ChallengeTowerService > /tmp/tower.txt
+          grep -q 'createControlledNativeTrainer' /tmp/npcbattle.txt
+          grep -q 'createBattleAi' /tmp/npcbattle.txt
+          grep -q 'prepareRegionalTeam' /tmp/npcbattle.txt
+          grep -q 'applyRegionalGimmickPolicy' /tmp/npcbattle.txt
+          grep -q 'towerBattleSpec' /tmp/tower.txt
+          grep -q 'megaStone' /tmp/tower.txt
+
+      - name: Package alpha.16
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/alpha16-out
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          jarfile="$(find /tmp/chainacobblemon/build/libs -maxdepth 1 -type f -name 'Chainacobblemon-0.4.0-alpha.16+1.21.1*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          cp "$jarfile" "$OUT/Chainacobblemon-0.4.0-alpha.16+1.21.1.jar"
+          cd /tmp/chainacobblemon
+          zip -qr "$OUT/Chainacobblemon-0.4.0-alpha.16-source.zip" . -x './.gradle/*' './build/*'
+          cat > "$OUT/README-ALPHA16.txt" <<'EOF'
+          Chainacobblemon 0.4.0-alpha.16 - Battle AI / regional gimmick policy
+
+          Built from verified alpha.15.
+
+          - Gym leaders: native RCT/Cobbleverse teams are isolated and RCT Tera/Dynamax/G-Max is disabled.
+          - Elite Four: exactly one special RCT gimmick on the ace per battle; members 1/3 Tera, 2/4 Dynamax.
+          - Champions: no RCT Tera/Dynamax; exactly one Mega Showdown Mega Stone on the designated ace.
+            Blue=Pidgeot, Lance=Dragonite, Steven=Metagross, Cynthia=Garchomp.
+          - RCTBattleAI gets progressively tighter decision margins and stronger switching/move weighting.
+          - Tower floors 7-10 use explicit offensive coverage sets.
+          - Tower Mega: floor 8 possible (25%), floor 9 possible (50%), floor 10 guaranteed, max one Mega Stone.
+          - All alpha.15 server-test fixes remain included.
+          EOF
+          cd "$OUT"
+          sha256sum Chainacobblemon-0.4.0-alpha.16+1.21.1.jar Chainacobblemon-0.4.0-alpha.16-source.zip > SHA256SUMS-0.4.0-alpha.16.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.16-Battle-Policy
+          path: /tmp/alpha16-out/*
+          if-no-files-found: error
+          retention-days: 90
