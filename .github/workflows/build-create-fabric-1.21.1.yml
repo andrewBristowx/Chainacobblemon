@@ -25,10 +25,24 @@ jobs:
 
       - name: Clone upstream Create Fabric 1.21.1
         run: |
-          git clone --depth 1 --branch 'mc1.21.1/fabric/dev' https://github.com/Fabricators-of-Create/Create.git upstream-create
+          git clone https://github.com/Fabricators-of-Create/Create.git upstream-create
           cd upstream-create
+          git checkout 7f1f67b6ecbbde512e8d35404f3621a6875ce838
           git rev-parse HEAD | tee ../UPSTREAM_COMMIT.txt
           git log -1 --pretty='%H%n%ci%n%s' > ../UPSTREAM_INFO.txt
+
+      - name: Apply build-only dependency workaround
+        working-directory: upstream-create
+        run: |
+          set -euxo pipefail
+          cp build.gradle.kts ../build.gradle.kts.before
+          sed -i '/modCompileOnly("dev.ftb.mods:ftb-library-fabric:2001.2.8")/d' build.gradle.kts
+          sed -i '/modCompileOnly("dev.ftb.mods:ftb-chunks-fabric:2001.3.1")/d' build.gradle.kts
+          sed -i '/modCompileOnly("dev.ftb.mods:ftb-quests-fabric:2001.4.2")/d' build.gradle.kts
+          grep -q 'ftb-library-fabric:2001.2.8' ../build.gradle.kts.before
+          ! grep -q 'ftb-library-fabric:2001.2.8' build.gradle.kts
+          ! grep -q 'ftb-chunks-fabric:2001.3.1' build.gradle.kts
+          ! grep -q 'ftb-quests-fabric:2001.4.2' build.gradle.kts
 
       - name: Build upstream source
         working-directory: upstream-create
@@ -46,26 +60,31 @@ jobs:
           unzip -p "$JAR" fabric.mod.json > fabric.mod.json
           grep -q '"id"[[:space:]]*:[[:space:]]*"create"' fabric.mod.json
           grep -q '1.21.1' fabric.mod.json
-          cp "$JAR" Create-Fabric-1.21.1-UPSTREAM-DEV.jar
-          sha256sum Create-Fabric-1.21.1-UPSTREAM-DEV.jar > SHA256SUMS.txt
+          cp "$JAR" Create-Fabric-1.21.1-DEV-BUILD.jar
+          sha256sum Create-Fabric-1.21.1-DEV-BUILD.jar > SHA256SUMS.txt
           {
-            echo 'Create Fabric 1.21.1 upstream dev build'
+            echo 'Create Fabric 1.21.1 development build'
             echo
             echo 'Source: Fabricators-of-Create/Create'
-            echo 'Branch: mc1.21.1/fabric/dev'
-            echo -n 'Commit: '; cat UPSTREAM_COMMIT.txt
+            echo 'Upstream branch: mc1.21.1/fabric/dev'
+            echo -n 'Upstream commit: '; cat UPSTREAM_COMMIT.txt
             echo
             cat UPSTREAM_INFO.txt
             echo
-            echo 'This is an unmodified build of the upstream development branch, not an official release.'
+            echo 'Build-only workaround: omitted three unresolved optional FTB modCompileOnly dependencies from the Gradle classpath:'
+            echo '- dev.ftb.mods:ftb-library-fabric:2001.2.8'
+            echo '- dev.ftb.mods:ftb-chunks-fabric:2001.3.1'
+            echo '- dev.ftb.mods:ftb-quests-fabric:2001.4.2'
+            echo 'No Create Java/resource source files were modified by this workflow.'
+            echo 'This is a development build, not an official Create release.'
           } > BUILD-INFO.txt
 
       - name: Upload compiled Create Fabric
         uses: actions/upload-artifact@v4
         with:
-          name: Create-Fabric-1.21.1-UPSTREAM-DEV
+          name: Create-Fabric-1.21.1-DEV-BUILD
           path: |
-            Create-Fabric-1.21.1-UPSTREAM-DEV.jar
+            Create-Fabric-1.21.1-DEV-BUILD.jar
             SHA256SUMS.txt
             BUILD-INFO.txt
             UPSTREAM_COMMIT.txt
