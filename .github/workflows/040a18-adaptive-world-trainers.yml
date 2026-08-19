@@ -7,6 +7,12 @@ on:
     paths:
       - 'ci/040a18/**'
       - '.github/workflows/040a18-adaptive-world-trainers.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.17
+    paths:
+      - 'ci/040a18/**'
+      - '.github/workflows/040a18-adaptive-world-trainers.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +44,7 @@ jobs:
           retention-days: 90
 
       - name: Publish verified alpha.18 to dist
+        if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
           rm -rf dist/alpha18
