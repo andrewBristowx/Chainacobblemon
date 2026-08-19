@@ -1,0 +1,59 @@
+name: Build Chainacobblemon 0.4.0-alpha.19 Real Level Safe Spawn
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.19
+    paths:
+      - 'ci/040a19/**'
+      - '.github/workflows/040a19-real-level-safe-spawn.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.18
+    paths:
+      - 'ci/040a19/**'
+      - '.github/workflows/040a19-real-level-safe-spawn.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ci/040a19/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.19-Real-Level-Safe-Spawn
+          path: /tmp/alpha19-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.19 to dist
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha19
+          mkdir -p dist/alpha19
+          cp /tmp/alpha19-out/* dist/alpha19/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha19/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha19/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha19
+          git commit -m 'build: publish verified alpha19 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.19
