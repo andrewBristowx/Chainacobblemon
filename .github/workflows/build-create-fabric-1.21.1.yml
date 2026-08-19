@@ -1,9 +1,9 @@
 name: Build Create Fabric 1.21.1 upstream
 
 on:
-  push:
+  pull_request:
     branches:
-      - build/create-fabric-1.21.1
+      - main
   workflow_dispatch:
 
 permissions:
