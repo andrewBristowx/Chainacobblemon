@@ -1,0 +1,108 @@
+name: Build Create Fabric 1.21.1 community port
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-create-fabric:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout helper repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Clone verified community Fabric 1.21.1 port
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/Zaxoosh/Create-For-Fabric-Continued.git upstream-create
+          cd upstream-create
+          git checkout a35b5430791d7b9ffc30d7063e83c8e32db93991
+          test "$(git rev-parse HEAD)" = "a35b5430791d7b9ffc30d7063e83c8e32db93991"
+          git rev-parse HEAD | tee ../UPSTREAM_COMMIT.txt
+          git log -1 --pretty='%H%n%ci%n%s' > ../UPSTREAM_INFO.txt
+
+      - name: Build source
+        working-directory: upstream-create
+        shell: bash
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew clean build --no-daemon --stacktrace 2>&1 | tee ../create-build.log
+          STATUS=${PIPESTATUS[0]}
+          echo "$STATUS" > ../BUILD_EXIT.txt
+          exit "$STATUS"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Create-Fabric-1.21.1-community-build-diagnostics
+          path: |
+            create-build.log
+            BUILD_EXIT.txt
+            UPSTREAM_COMMIT.txt
+            UPSTREAM_INFO.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Verify Fabric 1.21.1 output
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -lah upstream-create/build/libs
+          JAR="$(find upstream-create/build/libs -maxdepth 1 -type f -name 'create-for-fabric-continued-*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -n "$JAR"
+          test -s "$JAR"
+          unzip -p "$JAR" fabric.mod.json > fabric.mod.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open('fabric.mod.json', encoding='utf-8'))
+          assert p.get('name') == 'Create', p.get('name')
+          assert p.get('id') == 'create_ufoport', p.get('id')
+          mc = p.get('depends', {}).get('minecraft')
+          vals = mc if isinstance(mc, list) else [mc]
+          assert '1.21.1' in vals, vals
+          java = str(p.get('depends', {}).get('java', ''))
+          assert '21' in java, java
+          print('Verified:', p.get('id'), p.get('version'), vals, java)
+          PY
+          cp "$JAR" Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar
+          sha256sum Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar > SHA256SUMS.txt
+          {
+            echo 'Create For Fabric Continued - Minecraft 1.21/1.21.1 community build'
+            echo
+            echo 'Source: Zaxoosh/Create-For-Fabric-Continued (MIT)'
+            echo 'This is NOT an official Create or Create Fabric release.'
+            echo -n 'Source commit: '; cat UPSTREAM_COMMIT.txt
+            echo
+            cat UPSTREAM_INFO.txt
+            echo
+            echo 'Built without source modifications using Java 21.'
+            echo 'The resulting fabric.mod.json explicitly declares Minecraft 1.21 and 1.21.1 support.'
+            echo 'Required runtime dependencies include Fabric API and Forge Config API Port as declared by the source project.'
+          } > BUILD-INFO.txt
+
+      - name: Upload compiled Create Fabric
+        uses: actions/upload-artifact@v4
+        with:
+          name: Create-For-Fabric-Continued-0.9.3d-mc1.21.1
+          path: |
+            Create-For-Fabric-Continued-0.9.3d-mc1.21.1.jar
+            SHA256SUMS.txt
+            BUILD-INFO.txt
+            UPSTREAM_COMMIT.txt
+            fabric.mod.json
+          if-no-files-found: error
+          retention-days: 30
