@@ -1,0 +1,74 @@
+name: Build Create Fabric 1.21.1 upstream
+
+on:
+  push:
+    branches:
+      - build/create-fabric-1.21.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-create-fabric:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout helper repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Clone upstream Create Fabric 1.21.1
+        run: |
+          git clone --depth 1 --branch 'mc1.21.1/fabric/dev' https://github.com/Fabricators-of-Create/Create.git upstream-create
+          cd upstream-create
+          git rev-parse HEAD | tee ../UPSTREAM_COMMIT.txt
+          git log -1 --pretty='%H%n%ci%n%s' > ../UPSTREAM_INFO.txt
+
+      - name: Build upstream source
+        working-directory: upstream-create
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon --stacktrace
+
+      - name: Verify Fabric 1.21.1 output
+        run: |
+          set -euxo pipefail
+          ls -lah upstream-create/build/libs
+          JAR="$(find upstream-create/build/libs -maxdepth 1 -type f -name 'create-fabric-*.jar' ! -name '*sources*' ! -name '*dev*' ! -name '*shadow*' -print -quit)"
+          test -n "$JAR"
+          test -s "$JAR"
+          unzip -p "$JAR" fabric.mod.json > fabric.mod.json
+          grep -q '"id"[[:space:]]*:[[:space:]]*"create"' fabric.mod.json
+          grep -q '1.21.1' fabric.mod.json
+          cp "$JAR" Create-Fabric-1.21.1-UPSTREAM-DEV.jar
+          sha256sum Create-Fabric-1.21.1-UPSTREAM-DEV.jar > SHA256SUMS.txt
+          {
+            echo 'Create Fabric 1.21.1 upstream dev build'
+            echo
+            echo 'Source: Fabricators-of-Create/Create'
+            echo 'Branch: mc1.21.1/fabric/dev'
+            echo -n 'Commit: '; cat UPSTREAM_COMMIT.txt
+            echo
+            cat UPSTREAM_INFO.txt
+            echo
+            echo 'This is an unmodified build of the upstream development branch, not an official release.'
+          } > BUILD-INFO.txt
+
+      - name: Upload compiled Create Fabric
+        uses: actions/upload-artifact@v4
+        with:
+          name: Create-Fabric-1.21.1-UPSTREAM-DEV
+          path: |
+            Create-Fabric-1.21.1-UPSTREAM-DEV.jar
+            SHA256SUMS.txt
+            BUILD-INFO.txt
+            UPSTREAM_COMMIT.txt
+            fabric.mod.json
+          if-no-files-found: error
+          retention-days: 30
