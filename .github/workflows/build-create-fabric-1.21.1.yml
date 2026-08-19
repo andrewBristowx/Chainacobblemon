@@ -44,9 +44,27 @@ jobs:
 
       - name: Build upstream source
         working-directory: upstream-create
+        shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew clean build --no-daemon --stacktrace
+          set +e
+          ./gradlew clean build --no-daemon --stacktrace 2>&1 | tee ../create-build.log
+          STATUS=${PIPESTATUS[0]}
+          echo "$STATUS" > ../BUILD_EXIT.txt
+          exit "$STATUS"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Create-Fabric-1.21.1-build-diagnostics
+          path: |
+            create-build.log
+            BUILD_EXIT.txt
+            UPSTREAM_COMMIT.txt
+            UPSTREAM_INFO.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify Fabric 1.21.1 output
         run: |
