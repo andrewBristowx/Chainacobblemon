@@ -10,7 +10,11 @@ curl -fL --retry 3 --retry-delay 2 \
 unzip -q /tmp/a22/source.zip -d /tmp/chainacobblemon
 
 grep -q 'mod_version=0.4.0-alpha.22+1.21.1' /tmp/chainacobblemon/gradle.properties
-base64 -d "$GITHUB_WORKSPACE/ci/040a23/chaina_alpha23.patch.gz.b64" | gzip -dc > /tmp/alpha23.patch
+base64 -d "$GITHUB_WORKSPACE/ci/040a23/chaina_alpha23.patch.gz.b64" | gzip -dc > /tmp/alpha23-absolute.patch
+# The development diff was created between /mnt/data/a22base and /mnt/data/a23src.
+# Normalize those roots to standard a/ and b/ paths before applying with -p1.
+sed -e 's#/mnt/data/a22base/#a/#g' -e 's#/mnt/data/a23src/#b/#g' \
+  /tmp/alpha23-absolute.patch > /tmp/alpha23.patch
 cd /tmp/chainacobblemon
 patch -p1 --forward --batch < /tmp/alpha23.patch
 
@@ -20,7 +24,7 @@ test -f src/main/java/com/andrewbristowx/chainacobblemon/admin/ImportantLocation
 grep -q 'expectedTotal()' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java
 grep -q 'mapplan' src/main/java/com/andrewbristowx/chainacobblemon/command/ChainacobblemonCommands.java
 grep -q 'portraitId' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcNetworking.java
-grep -q 'resolveNative' src/client/java/com/andrewbristowx/chainacobblemon/client/challenge/RctTrainerTextureResolver.java
+grep -q 'resolveNative' src/client/java/com/andrewbristowx/chainacobblemon/client/render/RctTrainerTextureResolver.java
 grep -q '"locations"' src/client/java/com/andrewbristowx/chainacobblemon/client/progress/QuestJournalScreen.java
 grep -q 'syncChainaVictoryToRct' src/main/java/com/andrewbristowx/chainacobblemon/challenge/RctCobbleverseBridge.java
 
@@ -33,7 +37,7 @@ test -s "$jarfile"
 unzip -p "$jarfile" fabric.mod.json | grep -q '0.4.0-alpha.23+1.21.1'
 jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/admin/ImportantLocationService.class'
 jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/challenge/RctCobbleverseBridge.class'
-jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/client/challenge/RctTrainerTextureResolver.class'
+jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/client/render/RctTrainerTextureResolver.class'
 
 OUT=/tmp/alpha23-out
 cp "$jarfile" "$OUT/Chainacobblemon-0.4.0-alpha.23+1.21.1.jar"
