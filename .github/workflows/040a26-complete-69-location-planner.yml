@@ -1,0 +1,57 @@
+name: Build Chainacobblemon 0.4.0-alpha.26 Complete 69 Location Planner
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.26
+    paths:
+      - 'ci/040a26/**'
+      - '.github/workflows/040a26-complete-69-location-planner.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.25
+    paths:
+      - 'ci/040a26/**'
+      - '.github/workflows/040a26-complete-69-location-planner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.26
+        run: bash ci/040a26/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.26-Complete-69-Location-Planner
+          path: /tmp/alpha26-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.26 to dist
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha26
+          mkdir -p dist/alpha26
+          cp /tmp/alpha26-out/* dist/alpha26/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha26/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha26/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha26
+          git commit -m 'build: publish verified alpha26 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.26
