@@ -1,0 +1,136 @@
+name: Build Chainacobblemon 0.4.0-alpha.17 Twitch Support Rewards
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.17
+    paths:
+      - 'ci/040a17/**'
+      - '.github/workflows/040a17-twitch-support-rewards.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore verified alpha.16 source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/a16 /tmp/chainacobblemon
+          mkdir -p /tmp/a16 /tmp/chainacobblemon
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9350293269/zip" \
+            -o /tmp/a16/artifact.zip
+          unzip -q /tmp/a16/artifact.zip -d /tmp/a16
+          srczip="$(find /tmp/a16 -maxdepth 1 -type f -name 'Chainacobblemon-0.4.0-alpha.16-source.zip' -print -quit)"
+          test -n "$srczip"
+          unzip -q "$srczip" -d /tmp/chainacobblemon
+          test -f /tmp/chainacobblemon/gradlew
+          grep -q 'mod_version=0.4.0-alpha.16+1.21.1' /tmp/chainacobblemon/gradle.properties
+
+      - name: Apply alpha.17 Twitch support reward and trainer drop patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 -d ci/040a17/chaina_alpha17.patch.gz.b64 | gzip -dc > /tmp/alpha17.patch
+          cd /tmp/chainacobblemon
+          patch -p1 --forward --batch < /tmp/alpha17.patch
+          grep -q 'mod_version=0.4.0-alpha.17+1.21.1' gradle.properties
+          grep -q '0.4.0-alpha.17+1.21.1' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
+          test -f src/main/java/com/andrewbristowx/chainacobblemon/npc/TrainerPokemonDropGuard.java
+          grep -q 'new DropTable' src/main/java/com/andrewbristowx/chainacobblemon/npc/TrainerPokemonDropGuard.java
+          test -f src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.java
+          grep -q 'support-rewards.json' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.java
+          grep -q 'waterdrop' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+          grep -q 'giftsubs' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchCommands.java
+          grep -q 'supportEvents' src/main/java/com/andrewbristowx/chainacobblemon/twitch/TwitchBridgeClient.java
+
+      - name: Compile alpha.17 on Java 21
+        working-directory: /tmp/chainacobblemon
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon
+
+      - name: Verify alpha.17 JAR contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jarfile="$(find /tmp/chainacobblemon/build/libs -maxdepth 1 -type f -name 'Chainacobblemon-0.4.0-alpha.17+1.21.1*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          test -s "$jarfile"
+          unzip -p "$jarfile" fabric.mod.json | grep -q '0.4.0-alpha.17+1.21.1'
+          jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/npc/TrainerPokemonDropGuard.class'
+          jar tf "$jarfile" | grep -q 'com/andrewbristowx/chainacobblemon/twitch/TwitchSupportRewardService.class'
+          javap -classpath "$jarfile" -p com.andrewbristowx.chainacobblemon.twitch.TwitchService > /tmp/twitchservice.txt
+          javap -classpath "$jarfile" -p com.andrewbristowx.chainacobblemon.twitch.TwitchBridgeClient > /tmp/twitchbridge.txt
+          grep -q 'startSupportEvents' /tmp/twitchservice.txt
+          grep -q 'addSupportRule' /tmp/twitchservice.txt
+          grep -q 'testSupportEvent' /tmp/twitchservice.txt
+          grep -q 'supportEvents' /tmp/twitchbridge.txt
+
+      - name: Package alpha.17
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT=/tmp/alpha17-out
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          jarfile="$(find /tmp/chainacobblemon/build/libs -maxdepth 1 -type f -name 'Chainacobblemon-0.4.0-alpha.17+1.21.1*.jar' ! -name '*sources*' ! -name '*dev*' -print -quit)"
+          cp "$jarfile" "$OUT/Chainacobblemon-0.4.0-alpha.17+1.21.1.jar"
+          cd /tmp/chainacobblemon
+          zip -qr "$OUT/Chainacobblemon-0.4.0-alpha.17-source.zip" . -x './.gradle/*' './build/*'
+          cat > "$OUT/README-ALPHA17.txt" <<'TXT'
+          Chainacobblemon 0.4.0-alpha.17 - Twitch support rewards
+
+          Built from verified alpha.16.
+
+          Trainer/NPC Pokémon:
+          - NPC-owned battle Pokémon receive an empty Cobblemon drop table so defeating trainers no longer produces wild-species loot drops.
+
+          Twitch support rewards (requires ChainaBridge 0.4.0-alpha.9+):
+          - Admin-controlled support-event session start/stop/status.
+          - Persistent target player for Chaina effects.
+          - Custom Bits, gift-sub and sub-tier reward rules created from Minecraft commands.
+          - Destinations: Chaina target or donor.
+          - Actions: arbitrary console command, gacha tickets, random Pokémon with configurable shiny chance, inventory shuffle, water-drop challenge.
+          - Pending rewards survive restarts and wait for offline targets/donors.
+          - Rewards from Twitch users not yet linked are retained by Twitch user id and resolve after later linking.
+          - Anonymous events may target Chaina but cannot receive donor-specific rewards.
+          - Durable Bridge sequence tracking prevents old events from firing when a session is started later.
+          - Gift subs accumulate per donor during the active session; community gifts are deduplicated by ChainaBridge.
+
+          Seed examples on first fresh config:
+          - 100 Bits -> random Pokémon for Chaina.
+          - 1000 Bits -> random Pokémon for Chaina with 10% forced shiny chance.
+          - 5 gift subs -> 10 Chaina gacha tickets for Chaina.
+
+          Main admin command root:
+          /chaina twitch eventos
+          TXT
+          cd "$OUT"
+          sha256sum Chainacobblemon-0.4.0-alpha.17+1.21.1.jar Chainacobblemon-0.4.0-alpha.17-source.zip > SHA256SUMS-0.4.0-alpha.17.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.17-Twitch-Support-Rewards
+          path: /tmp/alpha17-out/*
+          if-no-files-found: error
+          retention-days: 90
