@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euxo pipefail
+# Trigger marker: alpha18 verified source build
 
 rm -rf /tmp/a17 /tmp/chainacobblemon /tmp/alpha18-out
 mkdir -p /tmp/a17 /tmp/chainacobblemon /tmp/alpha18-out
