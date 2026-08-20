@@ -1,0 +1,57 @@
+name: Build Chainacobblemon 0.4.0-alpha.28 Selective Campaign Pregen
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.28
+    paths:
+      - 'ci/040a28/**'
+      - '.github/workflows/040a28-selective-campaign-pregen.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.27
+    paths:
+      - 'ci/040a28/**'
+      - '.github/workflows/040a28-selective-campaign-pregen.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.28
+        run: bash ci/040a28/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.28-Selective-Campaign-Pregen
+          path: /tmp/alpha28-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.28 to dist
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha28
+          mkdir -p dist/alpha28
+          cp /tmp/alpha28-out/* dist/alpha28/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha28/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha28/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha28
+          git commit -m 'build: publish verified alpha28 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.28
