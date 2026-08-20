@@ -24,10 +24,8 @@ if grep -q 'rebuildPlan(server)' src/main/java/com/andrewbristowx/chainacobblemo
 fi
 grep -q 'cachedAudit' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java
 grep -q 'IndexedCandidate' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java
-if grep -q 'replaceAll("\\\\s+"' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java; then
-  echo 'ERROR: regex whitespace normalization survived alpha31' >&2
-  exit 1
-fi
+grep -q 'StringBuilder out = new StringBuilder' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java
+grep -q 'Character.isWhitespace' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalStructureAuditService.java
 # Regression guards from alpha30 and the dungeon/location work.
 grep -q 'TILE_SIZE_BLOCKS = 256' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java
 grep -q 'pauseTask' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java
