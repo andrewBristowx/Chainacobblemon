@@ -22,8 +22,9 @@ grep -q 'ServerTickEvents.START_SERVER_TICK' src/main/java/com/andrewbristowx/ch
 grep -q 'pauseTask' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java
 grep -q 'continueTask' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java
 grep -q '"chunky": "\*"' src/main/resources/fabric.mod.json
-if grep -q 'world.getChunk' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java; then
-  echo 'ERROR: direct world.getChunk pregeneration survived alpha30 patch' >&2
+# Guard specifically against the alpha.28 direct-generation statement. Comments/messages may mention world.getChunk while explaining its removal.
+if grep -Fq 'world.getChunk(target.x(), target.z())' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java; then
+  echo 'ERROR: alpha.28 direct world.getChunk(target.x(), target.z()) pregeneration survived alpha30 patch' >&2
   exit 1
 fi
 # Regression guards from alpha25-alpha28.
