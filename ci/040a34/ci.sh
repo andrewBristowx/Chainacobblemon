@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euxo pipefail
+# trigger: alpha34 genuine doubles build
 
 rm -rf /tmp/a33 /tmp/chainacobblemon /tmp/alpha34-out
 mkdir -p /tmp/a33 /tmp/chainacobblemon /tmp/alpha34-out
@@ -16,16 +17,13 @@ patch -p1 --forward --batch < /tmp/alpha34.patch
 
 grep -q 'mod_version=0.4.0-alpha.34+1.21.1' gradle.properties
 grep -q '0.4.0-alpha.34+1.21.1' src/main/java/com/andrewbristowx/chainacobblemon/Chainacobblemon.java
-# Genuine doubles regression guards.
 grep -q 'startForcedDoubleBattle' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
 grep -q 'startDouble", trainerClass, trainerClass, battleRulesClass' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
 grep -q 'List<Object> playerSide = List.of(playerTrainer)' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
 grep -q 'GEN_9_DOUBLES-capable' src/main/java/com/andrewbristowx/chainacobblemon/npc/NpcBattleService.java
-# Duo stays as two visual NPCs with independent skins/dialogues.
 grep -q 'region_lulita"' src/main/java/com/andrewbristowx/chainacobblemon/npc/CustomRegionTrainerCatalog.java
 grep -q 'region_duber"' src/main/java/com/andrewbristowx/chainacobblemon/npc/CustomRegionTrainerCatalog.java
 grep -q 'createLulitaDuberPair' src/main/java/com/andrewbristowx/chainacobblemon/npc/command/NpcCommands.java
-# Preserve alpha32/31 systems.
 grep -q 'megaEvolutionUnlocked' src/main/java/com/andrewbristowx/chainacobblemon/data/PlayerData.java
 grep -q 'mega_mentor' src/main/java/com/andrewbristowx/chainacobblemon/npc/CustomRegionTrainerCatalog.java
 grep -q 'planInitialized' src/main/java/com/andrewbristowx/chainacobblemon/admin/SelectivePregenService.java
