@@ -1,0 +1,2 @@
+dd2cc6de88254cd924f7a62717a9588f39e43bada5ff6707560229c1ade20c59  Chainacobblemon-0.4.0-alpha.36+1.21.1.jar
+b5344f58e7bbb0187d11849a00ee06b32528ecb0a7aa1e5f25ce381c9d6161b9  Chainacobblemon-0.4.0-alpha.36-source.zip
