@@ -1,0 +1,50 @@
+name: Build Chainacobblemon 0.4.0-alpha.32 Custom Region Mega
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.32
+    paths:
+      - 'ci/040a32/**'
+      - '.github/workflows/040a32-custom-region-mega.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.32
+        run: bash ci/040a32/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.32-Custom-Region-Mega
+          path: /tmp/alpha32-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.32 to dist
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha32
+          mkdir -p dist/alpha32
+          cp /tmp/alpha32-out/* dist/alpha32/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha32/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha32/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha32
+          git commit -m 'build: publish verified alpha32 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.32
