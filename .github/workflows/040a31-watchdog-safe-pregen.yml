@@ -6,13 +6,7 @@ on:
       - release/0.4.0-alpha.31
     paths:
       - 'ci/040a31/**'
-      - '.github/workflows/040a30-chunky-safe-pregen.yml'
-  pull_request:
-    branches:
-      - release/0.4.0-alpha.30
-    paths:
-      - 'ci/040a31/**'
-      - '.github/workflows/040a30-chunky-safe-pregen.yml'
+      - '.github/workflows/040a31-watchdog-safe-pregen.yml'
   workflow_dispatch:
 
 permissions:
@@ -42,7 +36,6 @@ jobs:
           retention-days: 90
 
       - name: Publish verified alpha.31 to dist
-        if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
           rm -rf dist/alpha31
@@ -53,5 +46,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add dist/alpha31
-          git commit -m 'build: publish verified 0.4.0-alpha31 artifacts'
+          git commit -m 'build: publish verified alpha31 artifacts'
           git push origin HEAD:release/0.4.0-alpha.31
