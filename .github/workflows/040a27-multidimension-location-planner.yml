@@ -1,0 +1,57 @@
+name: Build Chainacobblemon 0.4.0-alpha.27 Multidimension Location Planner
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.27
+    paths:
+      - 'ci/040a27/**'
+      - '.github/workflows/040a27-multidimension-location-planner.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.26
+    paths:
+      - 'ci/040a27/**'
+      - '.github/workflows/040a27-multidimension-location-planner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build and package alpha.27
+        run: bash ci/040a27/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.27-Multidimension-Location-Planner
+          path: /tmp/alpha27-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish verified alpha.27 to dist
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha27
+          mkdir -p dist/alpha27
+          cp /tmp/alpha27-out/* dist/alpha27/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha27/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha27/BUILD_STATUS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/alpha27
+          git commit -m 'build: publish verified alpha27 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.27
