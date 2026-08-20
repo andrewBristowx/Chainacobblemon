@@ -1,0 +1,57 @@
+name: 0.4.0-alpha.35 Final Overworld
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.35
+    paths:
+      - 'ci/040a35/**'
+      - '.github/workflows/040a35-final-overworld.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.34
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alpha35 carrier branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build verified alpha35 from alpha34 dist source
+        run: bash ci/040a35/ci.sh
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.35-Final-Overworld
+          path: /tmp/alpha35-out/*
+
+      - name: Publish verified dist files
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha35
+          mkdir -p dist/alpha35
+          cp /tmp/alpha35-out/* dist/alpha35/
+          printf '%s\n' "${GITHUB_RUN_ID}" > dist/alpha35/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha35/BUILD_STATUS.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dist/alpha35
+          git commit -m 'build: publish verified alpha35 artifacts' || exit 0
+          git push origin HEAD:release/0.4.0-alpha.35
