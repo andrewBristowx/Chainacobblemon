@@ -7,6 +7,12 @@ on:
     paths:
       - 'ci/040a30/**'
       - '.github/workflows/040a30-chunky-safe-pregen.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.28
+    paths:
+      - 'ci/040a30/**'
+      - '.github/workflows/040a30-chunky-safe-pregen.yml'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +42,7 @@ jobs:
           retention-days: 90
 
       - name: Publish verified alpha.30 to dist
+        if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
           rm -rf dist/alpha30
