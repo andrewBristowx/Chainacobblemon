@@ -16,6 +16,8 @@ patch -p1 --forward --batch < /tmp/alpha36.patch
 # Keep the public configurable radius inside the hard placement boundary.
 sed -i 's/private static final int MAX_CONFIGURED_RADIUS_BLOCKS = 12000;/private static final int MAX_CONFIGURED_RADIUS_BLOCKS = HARD_MAX_RADIUS_BLOCKS;/' \
   src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
+sed -i 's/IntegerArgumentType.integer(5000, 12000)/IntegerArgumentType.integer(5000, RegionalLayoutService.HARD_MAX_RADIUS_BLOCKS)/g' \
+  src/main/java/com/andrewbristowx/chainacobblemon/command/ChainacobblemonCommands.java
 
 # Alpha36 Regional Layout guards.
 grep -q 'mod_version=0.4.0-alpha.36+1.21.1' gradle.properties
@@ -28,6 +30,7 @@ grep -q 'DEFAULT_MIN_SEPARATION_BLOCKS = 512' src/main/java/com/andrewbristowx/c
 grep -q 'PRELOAD_CHUNK_RADIUS = 5' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
 grep -q 'items.size() != overworldCount' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
 grep -q 'World.OVERWORLD.getValue().toString().equals(location.dimensionId())' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
+grep -q 'IntegerArgumentType.integer(5000, RegionalLayoutService.HARD_MAX_RADIUS_BLOCKS)' src/main/java/com/andrewbristowx/chainacobblemon/command/ChainacobblemonCommands.java
 grep -q 'place structure' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
 grep -q 'StructureTemplateManager' src/main/java/com/andrewbristowx/chainacobblemon/admin/RegionalLayoutService.java
 grep -q 'recordGeneratedLocation' src/main/java/com/andrewbristowx/chainacobblemon/admin/ImportantLocationService.java
