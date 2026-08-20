@@ -1,0 +1,57 @@
+name: 0.4.0-alpha.36 Regional Layout
+
+on:
+  push:
+    branches:
+      - release/0.4.0-alpha.36
+    paths:
+      - 'ci/040a36/**'
+      - '.github/workflows/040a36-regional-layout.yml'
+  pull_request:
+    branches:
+      - release/0.4.0-alpha.35
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alpha36 carrier branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build verified alpha36 from alpha35 dist source
+        run: bash ci/040a36/ci.sh
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chainacobblemon-0.4.0-alpha.36-Regional-Layout
+          path: /tmp/alpha36-out/*
+
+      - name: Publish verified dist files
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf dist/alpha36
+          mkdir -p dist/alpha36
+          cp /tmp/alpha36-out/* dist/alpha36/
+          printf '%s\n' "${GITHUB_RUN_ID}" > dist/alpha36/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha36/BUILD_STATUS.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dist/alpha36
+          git commit -m 'build: publish verified alpha36 artifacts' || exit 0
+          git push origin HEAD:release/0.4.0-alpha.36
