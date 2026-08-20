@@ -1,17 +1,17 @@
-name: Build Chainacobblemon 0.4.0-alpha.30 Chunky Safe Pregen
+name: Build Chainacobblemon 0.4.0-alpha.31 Watchdog Safe Pregen
 
 on:
   push:
     branches:
-      - release/0.4.0-alpha.30
+      - release/0.4.0-alpha.31
     paths:
-      - 'ci/040a30/**'
+      - 'ci/040a31/**'
       - '.github/workflows/040a30-chunky-safe-pregen.yml'
   pull_request:
     branches:
-      - release/0.4.0-alpha.28
+      - release/0.4.0-alpha.30
     paths:
-      - 'ci/040a30/**'
+      - 'ci/040a31/**'
       - '.github/workflows/040a30-chunky-safe-pregen.yml'
   workflow_dispatch:
 
@@ -31,27 +31,27 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Build and package alpha.30
-        run: bash ci/040a30/ci.sh
+      - name: Build and package alpha.31
+        run: bash ci/040a31/ci.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Chainacobblemon-0.4.0-alpha.30-Chunky-Safe-Pregen
-          path: /tmp/alpha30-out/*
+          name: Chainacobblemon-0.4.0-alpha.31-Watchdog-Safe-Pregen
+          path: /tmp/alpha31-out/*
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish verified alpha.30 to dist
+      - name: Publish verified alpha.31 to dist
         if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
-          rm -rf dist/alpha30
-          mkdir -p dist/alpha30
-          cp /tmp/alpha30-out/* dist/alpha30/
-          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha30/RUN_ID.txt
-          printf 'SUCCESS\n' > dist/alpha30/BUILD_STATUS.txt
+          rm -rf dist/alpha31
+          mkdir -p dist/alpha31
+          cp /tmp/alpha31-out/* dist/alpha31/
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/alpha31/RUN_ID.txt
+          printf 'SUCCESS\n' > dist/alpha31/BUILD_STATUS.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add dist/alpha30
-          git commit -m 'build: publish verified alpha30 artifacts'
-          git push origin HEAD:release/0.4.0-alpha.30
+          git add dist/alpha31
+          git commit -m 'build: publish verified 0.4.0-alpha31 artifacts'
+          git push origin HEAD:release/0.4.0-alpha.31
