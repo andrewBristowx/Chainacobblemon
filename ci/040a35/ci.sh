@@ -10,7 +10,9 @@ curl -fL --retry 3 --retry-delay 2 \
 unzip -q /tmp/a34/source.zip -d /tmp/chainacobblemon
 
 grep -q 'mod_version=0.4.0-alpha.34+1.21.1' /tmp/chainacobblemon/gradle.properties
-base64 -d "$GITHUB_WORKSPACE/ci/040a35/chaina_alpha35.patch.gz.b64" | gzip -dc > /tmp/alpha35.patch
+cat "$GITHUB_WORKSPACE"/ci/040a35/patch.part* | base64 -d > /tmp/alpha35.patch.gz
+gzip -t /tmp/alpha35.patch.gz
+gzip -dc /tmp/alpha35.patch.gz > /tmp/alpha35.patch
 cd /tmp/chainacobblemon
 patch -p1 --forward --batch < /tmp/alpha35.patch
 
